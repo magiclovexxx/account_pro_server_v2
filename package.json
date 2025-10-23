@@ -1,0 +1,38 @@
+{
+  "name": "generate_video",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js --ignore session.json --ignore profiles/",
+    "dev": "nodemon server.js  --ignore session.json --ignore profiles/"
+  },
+  "type": "module",
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "@distube/ytdl-core": "^4.16.12",
+    "@google/genai": "^1.25.0",
+    "@mrnima/facebook-downloader": "^1.0.0",
+    "async-mutex": "^0.5.0",
+    "axios": "^1.12.2",
+    "body-parser": "^2.2.0",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "ffprobe": "^1.1.2",
+    "ffprobe-static": "^3.1.0",
+    "node-appwrite": "^20.2.1",
+    "playwright": "^1.56.0",
+    "playwright-extra": "^4.3.6",
+    "puppeteer": "^24.22.0",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "rahad-all-downloader": "^2.1.18",
+    "ytdl-core": "^4.11.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
