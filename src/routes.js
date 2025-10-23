@@ -11,5 +11,6 @@ router.use("/video",authChecker, videoRoute);
 router.use("/image",authChecker, imageRoute);
 router.use("/auth",authChecker, authRoute);
 router.use("/payment",authChecker, paymenthRoute);
+router.use("/sepay", paymenthRoute);
 
 export default router;
