@@ -27,7 +27,7 @@ export default async (req, res, next) => {
 
         // Gắn thông tin người dùng vào request để các route sau có thể sử dụng
         req.user = user; 
-        
+        console.log("auth ok")
         next(); // Token hợp lệ, cho phép đi tiếp
     } catch (error) {
         console.error('Lỗi xác thực token:', error.message);

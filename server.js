@@ -12,7 +12,7 @@ const mutex = new Mutex();
 dotenv.config();
 
 const number_generate = process.env.NUMBER;
-const PORT = 6789;
+const PORT = process.env.PORT;
 const app = express();
 
 // Middleware
