@@ -239,7 +239,6 @@ router.post("/payment-return", async (req, res) => {
                     expriration_date: dayjs()
                         .add(transaction.package.days, "day")
                         .toISOString(),
-                    createdAt: new Date().toISOString(),
                 };
 
                 const createdOrder = await databases.createDocument(databaseId, "orders", "unique()", newOrder);
