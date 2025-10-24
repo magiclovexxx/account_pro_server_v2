@@ -231,10 +231,10 @@ router.post("/payment-return", async (req, res) => {
                 const newOrder = {
                     userId: payment.userId,
                     toolId: tool.$id,
-                    payment_id: payment.$id,
+                    paymentId: payment.$id,
                     price: parseFloat(transaction.package.price),
                     max_device: parseFloat(transaction.deviceCount),
-                    status: "paid",
+                    status: true,
                     method: "sepay",
                     expriration_date: dayjs()
                         .add(transaction.package.days, "day")
