@@ -222,10 +222,10 @@ router.post("/payment-return", async (req, res) => {
                 }
                 await databases.updateDocument(databaseId, "payments", payment.$id, {
                     orderId: existingOrder.$id,
-                    isPurchased: "success"
                 });
                 await databases.updateDocument(databaseId, "orders", existingOrder.$id, {
                     expriration_date: newExpire,
+                    isPurchased: "true"
                 });
             } else {
                 // 5️⃣ Tạo order mới
@@ -236,7 +236,7 @@ router.post("/payment-return", async (req, res) => {
                     price: parseFloat(transaction.package.price),
                     max_device: parseFloat(transaction.deviceCount),
                     status: true,
-                    isPurchased: "success",
+                    isPurchased: "true",
                     method: "sepay",
                     expriration_date: dayjs()
                         .add(transaction.package.days, "day")
