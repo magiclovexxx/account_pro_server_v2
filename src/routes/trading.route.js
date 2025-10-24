@@ -14,6 +14,29 @@ const client = new Client()
 const databases = new Databases(client);
 const databaseId = process.env.APPWRITE_DATABASE_ID;
 
+function convertJsonParamsToString(jsonString) {
+  try {
+    // Parse chuỗi JSON (bỏ \n, \" ...)
+    const arr = JSON.parse(jsonString);
+
+    if (!Array.isArray(arr)) {
+      throw new Error("Input không phải là mảng JSON hợp lệ");
+    }
+
+    // Lọc ra các phần tử có đủ param & value
+    const pairs = arr
+      .filter(item => item.param && item.value !== undefined)
+      .map(item => `${item.param}=${item.value}`);
+
+    // Ghép thành chuỗi cuối cùng
+    return pairs.join(';');
+  } catch (err) {
+    console.error("❌ Lỗi parse JSON:", err.message);
+    return "";
+  }
+}
+
+
 // ✅ Route: POST /api/payment
 router.get('/', async (req, res) => {
     try {
@@ -34,7 +57,8 @@ router.get('/', async (req, res) => {
             });
         }
         const result = configs.documents[0]
-        res.status(201).json(result.config);
+        const text = convertJsonParamsToString(result.config)
+        res.status(201).json(text);
     } catch (error) {
         console.error('❌ Lỗi khi lưu payment:', error.message);
         res.status(500).json({
