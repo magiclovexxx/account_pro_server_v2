@@ -5,8 +5,9 @@ import dotenv from 'dotenv';
 import { appwriteCRUD } from "./src/services/appwrite.js";
 import { videoGenerate } from "./src/services/video_generation.js";
 import { Mutex } from 'async-mutex';
-
 import router from './src/routes.js'
+// server.js
+import './src/services/cron-ads-report.js';
 
 const mutex = new Mutex();
 dotenv.config();

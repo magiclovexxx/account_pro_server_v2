@@ -13,6 +13,7 @@
   "description": "",
   "dependencies": {
     "@distube/ytdl-core": "^4.16.12",
+    "@google-ads/admanager": "^0.5.0",
     "@google/genai": "^1.25.0",
     "@mrnima/facebook-downloader": "^1.0.0",
     "async-mutex": "^0.5.0",
@@ -25,7 +26,9 @@
     "express": "^5.1.0",
     "ffprobe": "^1.1.2",
     "ffprobe-static": "^3.1.0",
+    "googleapis": "^164.1.0",
     "node-appwrite": "^20.2.1",
+    "node-cron": "^4.2.1",
     "playwright": "^1.56.0",
     "playwright-extra": "^4.3.6",
     "puppeteer": "^24.22.0",
