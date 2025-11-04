@@ -103,7 +103,7 @@ async function upsertAdsReport(databases, doc) {
         APPWRITE_ADS_REPORT_COLLECTION_ID,
         filters
     );
-    // console.log("update create report: ", found)
+    // console.log("update create report: ", doc)
     if (found.total > 0) {
         const existing = found.documents[0];
         return databases.updateDocument(
@@ -203,7 +203,9 @@ async function runOnce() {
                 try {
                     await upsertAdsReport(databases, reportDoc);
                 } catch (e) {
+                    
                     console.error(`Upsert failed for ${networkCode}`, e.message);
+                    console.log("update create report: ", reportDoc)
                 }
             }
 
