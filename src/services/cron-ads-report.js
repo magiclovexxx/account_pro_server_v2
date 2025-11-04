@@ -153,17 +153,6 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
 }
 
 async function runOnce() {
-    //   const requiredEnvs = [
-    //     'APPWRITE_ENDPOINT',
-    //     'APPWRITE_PROJECT_ID',
-    //     'APPWRITE_API_KEY',
-    //     'APPWRITE_DATABASE_ID',
-    //   ];
-    //   const missing = requiredEnvs.filter((k) => !process.env[k]);
-    //   if (missing.length) {
-    //     console.error('Missing ENV:', missing.join(', '));
-    //     return;
-    //   }
 
     const client = new Client()
         .setEndpoint(APPWRITE_ENDPOINT)

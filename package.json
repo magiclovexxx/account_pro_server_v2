@@ -27,7 +27,7 @@
     "ffprobe": "^1.1.2",
     "ffprobe-static": "^3.1.0",
     "googleapis": "^164.1.0",
-    "node-appwrite": "^20.2.1",
+    "node-appwrite": "^17.0.0",
     "node-cron": "^4.2.1",
     "playwright": "^1.56.0",
     "playwright-extra": "^4.3.6",
