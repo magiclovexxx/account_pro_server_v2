@@ -20,6 +20,25 @@ const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
 
 console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
 
+function nowUtcIso() {
+    return new Date().toISOString(); // ví dụ: 2025-11-04T03:10:22.123Z
+}
+
+// Hoặc nếu bạn muốn lưu rõ múi giờ Bangkok (+07:00)
+function nowBangkokIso() {
+    const now = new Date();
+    // Lấy các phần theo giờ địa phương Bangkok bằng cách cộng offset 7h từ UTC
+    const bangkok = new Date(now.getTime() + 7 * 60 * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const Y = bangkok.getUTCFullYear();
+    const M = pad(bangkok.getUTCMonth() + 1);
+    const D = pad(bangkok.getUTCDate());
+    const h = pad(bangkok.getUTCHours());
+    const m = pad(bangkok.getUTCMinutes());
+    const s = pad(bangkok.getUTCSeconds());
+    return `${Y}-${M}-${D}T${h}:${m}:${s}+07:00`;
+}
+
 // ====== Helper: format ngày theo Asia/Bangkok ======
 function toBangkokDateString(d) {
     const fmt = new Intl.DateTimeFormat('en-CA', {
@@ -47,7 +66,7 @@ function getLast3DaysRange() {
 function mapRowToReportDocs(networkCode, row) {
     // console.log("Map row ", networkCode, row)
     const dateRaw =
-        row.DATE ?? row.date ?? row.day ?? row.Date ?? row['DATE'] ?? row['date']?? row['Date'];
+        row.DATE ?? row.date ?? row.day ?? row.Date ?? row['DATE'] ?? row['date'] ?? row['Date'];
     const adUnitName =
         row.AD_UNIT_NAME ??
         row.ad_unit_name ??
@@ -62,7 +81,7 @@ function mapRowToReportDocs(networkCode, row) {
         row['IMPRESSIONS'] ??
         row['impressions'] ??
         row['impr'];
-     const site =
+    const site =
         row.Site ??
         row.site ??
         row['SITE'] ??
@@ -126,7 +145,7 @@ async function upsertAdsReport(databases, doc) {
 }
 
 async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
-    console.log(" get data network code: ", networkCode)
+    
     const url = new URL(BASE_REPORT_URL);
     url.searchParams.set('preset', 'adx');
     url.searchParams.set('dimensions', 'DATE,SITE_NAME,AD_UNIT_ID,AD_UNIT_NAME');
@@ -165,7 +184,9 @@ async function runOnce() {
     const codesRes = await databases.listDocuments(
         APPWRITE_DATABASE_ID,
         APPWRITE_NETWORK_CODES_COLLECTION_ID,
-        [Query.equal('status', true)]
+        [Query.equal('status', true),
+        Query.orderAsc('getDataTime')
+        ]
     );
 
     if (!codesRes.total) {
@@ -189,7 +210,7 @@ async function runOnce() {
                 startStr,
                 endStr
             );
-
+            console.log(" get data network code: ", networkCode, " - last get: ",doc.getDataTime)
             if (!rows.length) {
                 console.log(`No rows for networkCode=${networkCode}`);
                 continue;
@@ -203,13 +224,19 @@ async function runOnce() {
                 try {
                     await upsertAdsReport(databases, reportDoc);
                 } catch (e) {
-                    
+
                     console.error(`Upsert failed for ${networkCode}`, e.message);
                     console.log("update create report: ", reportDoc)
                 }
             }
-
-
+            const useBangkok = ""
+            const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
+            await databases.updateDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_NETWORK_CODES_COLLECTION_ID,
+                doc.$id,
+                { getDataTime: iso }
+            );
             console.log(`Done networkCode=${networkCode} (${rows.length} row(s))`);
         } catch (e) {
             console.error(`Fetch failed for networkCode=${networkCode}`, e.message);
@@ -223,6 +250,6 @@ async function runOnce() {
 runOnce().catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-cron.schedule('*/5 * * * *', () => {
+cron.schedule('15 * * * *', () => {
     runOnce().catch((err) => console.error(err));
 });
