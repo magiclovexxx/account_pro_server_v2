@@ -55,7 +55,7 @@ function getLast3DaysRange() {
     const now = new Date();
     const end = new Date(now);
     const start = new Date(now);
-    start.setDate(start.getDate() - 2);
+    start.setDate(start.getDate() - 3);
 
     const startStr = toBangkokDateString(start);
     const endStr = toBangkokDateString(end);
@@ -96,14 +96,14 @@ function mapRowToReportDocs(networkCode, row) {
     const option = {
 
     }
-    const onlyDate = (dateRaw ?? '').toString().slice(0, 10);
-    const isoDate = `${onlyDate}T00:00:00+07:00`;
+    // const onlyDate = (dateRaw ?? '').toString().slice(0, 10);
+    // const isoDate = `${onlyDate}T00:00:00-08:00`;
 
     const impressions = impressionsRaw != null ? Number(impressionsRaw) : 0;
 
     return {
         networkCode: String(networkCode),
-        date: isoDate,
+        date: dateRaw,
         site: site,
         ad_unit_name: adUnitName ? String(adUnitName) : '',
         options: JSON.stringify(row),
@@ -250,6 +250,6 @@ async function runOnce() {
 runOnce().catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-cron.schedule('15 * * * *', () => {
+cron.schedule('0 * * * *', () => {
     runOnce().catch((err) => console.error(err));
 });
