@@ -66,7 +66,7 @@ function getLast3DaysRange() {
     const now = new Date();
     const end = new Date(now);
     const start = new Date(now);
-    start.setDate(start.getDate() - 90);
+    start.setDate(start.getDate() - 0);
 
     const startStr = toBangkokDateString(start);
     const endStr = toBangkokDateString(end);
@@ -289,9 +289,26 @@ async function deleteAllAdsReports() {
 
 
 // Chạy ngay 1 lần khi khởi động
-runOnce().catch((err) => console.error(err));
+// runOnce().catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-// cron.schedule('0 * * * *', () => {
-//     runOnce().catch((err) => console.error(err));
-// });
+let isRunning = false;
+
+cron.schedule('*/5 * * * *', async () => {
+    if (isRunning) {
+        console.log('⏳ Cron đang chạy, bỏ qua lần này.');
+        return;
+    }
+
+    isRunning = true;
+    console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
+
+    try {
+        await runOnce();
+    } catch (err) {
+        console.error('❌ Lỗi khi chạy runOnce:', err);
+    } finally {
+        isRunning = false;
+        console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
+    }
+});
