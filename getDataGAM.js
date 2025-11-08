@@ -5,6 +5,9 @@ import { Client, Databases, Query, ID } from 'node-appwrite';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 dotenv.config();
+import fs from 'fs';
+import path from 'path';
+
 // (Tuỳ chọn) Tải biến môi trường từ .env
 // import 'dotenv/config';
 
@@ -15,8 +18,16 @@ const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY
 const APPWRITE_ADS_REPORT_COLLECTION_ID = 'adsReport'
 const APPWRITE_NETWORK_CODES_COLLECTION_ID = 'networkCodes'
-const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
+// const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
+const BASE_REPORT_URL = 'http://192.168.1.100:5000/gam/report';
 
+
+const client = new Client()
+    .setEndpoint(APPWRITE_ENDPOINT)
+    .setProject(APPWRITE_PROJECT_ID)
+    .setKey(APPWRITE_API_KEY);
+
+const databases = new Databases(client);
 
 console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
 
@@ -145,10 +156,11 @@ async function upsertAdsReport(databases, doc) {
 }
 
 async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
-    
+    //HISTORICAL
     const url = new URL(BASE_REPORT_URL);
     url.searchParams.set('preset', 'adx');
-    url.searchParams.set('dimensions', 'DATE,SITE_NAME,AD_UNIT_ID,AD_UNIT_NAME');
+    url.searchParams.set('dimensions', 'DATE_PT,SITE_NAME,AD_UNIT_ID,AD_UNIT_NAME');
+    url.searchParams.set('time_zone_type', 'PACIFIC');
     url.searchParams.set('ad_unit_view', 'FLAT');
     url.searchParams.set('start_date', startStr);
     url.searchParams.set('end_date', endStr);
@@ -162,7 +174,9 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
     if (!res.ok) {
         throw new Error(`Report API ${networkCode} failed: HTTP ${res.status}`);
     }
-
+    // const txt = await res.text();
+    // console.log('raw payload:', txt); // sẽ thấy "NaN" ở đâu
+    // const data = JSON.parse(txt); // sẽ fail nếu còn NaN
     const data = await res.json();
 
     if (Array.isArray(data)) return data;
@@ -173,12 +187,6 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
 
 async function runOnce() {
 
-    const client = new Client()
-        .setEndpoint(APPWRITE_ENDPOINT)
-        .setProject(APPWRITE_PROJECT_ID)
-        .setKey(APPWRITE_API_KEY);
-
-    const databases = new Databases(client);
 
     // Lấy networkCodes có status = true
     const codesRes = await databases.listDocuments(
@@ -205,13 +213,13 @@ async function runOnce() {
         if (!networkCode) continue;
 
         try {
-            if (networkCode != '22832226420') continue
+            // if (networkCode != '22849387084') continue
             const rows = await fetchReportForNetworkCode(
                 networkCode,
                 startStr,
                 endStr
             );
-            console.log(" get data network code: ", networkCode, " - last get: ",doc.getDataTime)
+            console.log(" get data network code: ", networkCode, + " - " + doc.title + " - last get: ", doc.getDataTime)
             if (!rows.length) {
                 console.log(`No rows for networkCode=${networkCode}`);
                 continue;
@@ -247,10 +255,43 @@ async function runOnce() {
     console.log('[CRON] Completed.');
 }
 
+
+// 🧹 Hàm xoá toàn bộ dữ liệu
+async function deleteAllAdsReports() {
+    try {
+        let totalDeleted = 0;
+        while (true) {
+            // Lấy tối đa 100 documents mỗi lượt (Appwrite giới hạn 100)
+            const docs = await databases.listDocuments(APPWRITE_DATABASE_ID, 'adsReport', [
+                Query.limit(100),
+            ]);
+
+            if (docs.total === 0) break;
+
+            for (const doc of docs.documents) {
+                await databases.deleteDocument(APPWRITE_DATABASE_ID, 'adsReport', doc.$id);
+                totalDeleted++;
+                console.log(`🗑️ Đã xoá document: ${doc.$id}`);
+            }
+
+            // Nếu ít hơn 100 thì hết dữ liệu
+            if (docs.documents.length < 100) break;
+        }
+
+        console.log(`✅ Hoàn tất — đã xoá ${totalDeleted} document(s)`);
+    } catch (error) {
+        console.error('❌ Lỗi khi xoá dữ liệu:', error);
+    }
+}
+
+// Gọi hàm
+// deleteAllAdsReports();
+
+
 // Chạy ngay 1 lần khi khởi động
 runOnce().catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-cron.schedule('0 * * * *', () => {
-    runOnce().catch((err) => console.error(err));
-});
+// cron.schedule('0 * * * *', () => {
+//     runOnce().catch((err) => console.error(err));
+// });
