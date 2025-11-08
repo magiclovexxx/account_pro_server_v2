@@ -42,7 +42,7 @@ function nowBangkokIso() {
 // ====== Helper: format ngày theo Asia/Bangkok ======
 function toBangkokDateString(d) {
     const fmt = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Asia/Bangkok',
+        timeZone: 'America/Los_Angeles',
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
@@ -250,3 +250,7 @@ async function runOnce() {
 // Chạy ngay 1 lần khi khởi động
 runOnce().catch((err) => console.error(err));
 
+// Lịch cron: mỗi giờ vào phút 0
+cron.schedule('0 * * * *', () => {
+    runOnce().catch((err) => console.error(err));
+});
