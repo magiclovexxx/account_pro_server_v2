@@ -18,8 +18,8 @@ const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY
 const APPWRITE_ADS_REPORT_COLLECTION_ID = 'adsReport'
 const APPWRITE_NETWORK_CODES_COLLECTION_ID = 'networkCodes'
-// const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
-const BASE_REPORT_URL = 'http://192.168.1.100:5000/gam/report';
+const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
+// const BASE_REPORT_URL = 'http://192.168.1.100:5000/gam/report';
 
 
 const client = new Client()
