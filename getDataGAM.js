@@ -7,7 +7,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import fs from 'fs';
 import path from 'path';
-
+import axios from 'axios';
 // (Tuỳ chọn) Tải biến môi trường từ .env
 // import 'dotenv/config';
 
@@ -28,8 +28,33 @@ const client = new Client()
     .setKey(APPWRITE_API_KEY);
 
 const databases = new Databases(client);
+let x = []
+// console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
+// Hàm upsert song song an toàn theo batch
+async function upsertInBatches(rows, networkCode, batchSize = 50) {
+    let failList = [];
 
-console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
+    for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+
+        const results = await Promise.all(
+            batch.map(async (row) => {
+                const doc = mapRowToReportDocs(networkCode, row);
+
+                try {
+                    await upsertAdsReport(databases, doc);
+                    return { ok: true };
+                } catch (err) {
+                    return { ok: false, err, doc };
+                }
+            })
+        );
+        console.log(`Ghi dữ liệu: ${i + batchSize}/${rows.length} docs`);
+    }
+
+    return failList;
+}
+
 
 function nowUtcIso() {
     return new Date().toISOString(); // ví dụ: 2025-11-04T03:10:22.123Z
@@ -51,7 +76,7 @@ function nowBangkokIso() {
 }
 
 // ====== Helper: format ngày theo Asia/Bangkok ======
-function toBangkokDateString(d) {
+function formatTime(d) {
     const fmt = new Intl.DateTimeFormat('en-CA', {
         timeZone: 'America/Los_Angeles',
         year: 'numeric',
@@ -62,15 +87,34 @@ function toBangkokDateString(d) {
 }
 
 // Trả về 3 ngày gần nhất (theo Bangkok): [today-2 .. today]
-function getLast3DaysRange() {
+function getLast3DaysRange(day) {
     const now = new Date();
     const end = new Date(now);
     const start = new Date(now);
-    start.setDate(start.getDate() - 3);
+    start.setDate(start.getDate() - day);
 
-    const startStr = toBangkokDateString(start);
-    const endStr = toBangkokDateString(end);
+    const startStr = formatTime(start);
+    const endStr = formatTime(end);
     return { startStr, endStr };
+}
+
+
+async function deleteInBatches(documents, batchSize = 30) {
+    for (let i = 0; i < documents.length; i += batchSize) {
+        const batch = documents.slice(i, i + batchSize);
+
+        await Promise.all(
+            batch.map(doc =>
+                databases.deleteDocument(
+                    APPWRITE_DATABASE_ID,
+                    APPWRITE_ADS_REPORT_COLLECTION_ID,
+                    doc.$id
+                )
+            )
+        );
+
+        console.log(`Đã xoá ${i + batch.length}/${documents.length} docs`);
+    }
 }
 
 // Chuẩn hoá dữ liệu hàng từ API thành record cho adsReport
@@ -123,35 +167,19 @@ function mapRowToReportDocs(networkCode, row) {
 
 // Upsert theo (networkCode, date, ad_unit_name)
 async function upsertAdsReport(databases, doc) {
-    const filters = [
-        Query.equal("networkCode", doc.networkCode),
-        Query.equal('date', doc.date),
-        Query.equal('ad_unit_name', doc.ad_unit_name || ''),
-    ];
-    const found = await databases.listDocuments(
-        APPWRITE_DATABASE_ID,
-        APPWRITE_ADS_REPORT_COLLECTION_ID,
-        filters
-    );
-    // console.log("update create report: ", doc)
-    if (found.total > 0) {
-        const existing = found.documents[0];
-        return databases.updateDocument(
-            APPWRITE_DATABASE_ID,
-            APPWRITE_ADS_REPORT_COLLECTION_ID,
-            existing.$id,
-            {
-                impressions: doc.impressions,
-                options: doc.options,
-            }
-        );
-    } else {
-        return databases.createDocument(
+    try {
+
+        await databases.createDocument(
             APPWRITE_DATABASE_ID,
             APPWRITE_ADS_REPORT_COLLECTION_ID,
             ID.unique(),
             doc
         );
+
+        return { ok: true, mode: "create" };
+
+    } catch (err) {
+        return { ok: false, err, doc };
     }
 }
 
@@ -166,19 +194,19 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
     url.searchParams.set('end_date', endStr);
     url.searchParams.set('network_code', String(networkCode));
 
-    const res = await fetch(url.toString(), {
-        method: 'GET',
+    const res = await axios.get(url.toString(), {
         headers: { Accept: 'application/json' },
+        timeout: 300000, // 30 giây
     });
 
-    if (!res.ok) {
-        throw new Error(`Report API ${networkCode} failed: HTTP ${res.status}`);
-    }
-    // const txt = await res.text();
-    // console.log('raw payload:', txt); // sẽ thấy "NaN" ở đâu
-    // const data = JSON.parse(txt); // sẽ fail nếu còn NaN
-    const data = await res.json();
 
+    if (res.data?.row_count <= 0) {
+        return [];
+        // throw new Error(`Report API ${networkCode} failed: HTTP ${res.status}`);
+    }
+
+    const data = await res.data;
+    console.log("res: ", res.data?.row_count)
     if (Array.isArray(data)) return data;
     if (data && Array.isArray(data.data)) return data.data;
     if (data && Array.isArray(data.rows)) return data.rows;
@@ -202,42 +230,49 @@ async function runOnce() {
         return;
     }
 
-    const { startStr, endStr } = getLast3DaysRange();
+    const { startStr, endStr } = getLast3DaysRange(7);
+    // let startStr = '2025-11-17'
+    // let endStr = '2025-11-18'
     console.log(
         `[CRON] Tất cả ${codesRes.total} network code(s) | range: ${startStr}..${endStr}`
     );
 
 
-    for (const doc of codesRes.documents) {
+    for (const [index, doc] of codesRes.documents.entries()) {
         const networkCode = doc.networkCode ?? doc['networkCode'];
         if (!networkCode) continue;
 
         try {
-            // if (networkCode != '22849387084') continue
+            // if (networkCode != '22545677070') continue;
             const rows = await fetchReportForNetworkCode(
                 networkCode,
                 startStr,
                 endStr
             );
-            console.log(" get data network code: ", networkCode, + " - " + doc.title + " - last get: ", doc.getDataTime)
+            console.log(" get data network code: ", networkCode + " - ", startStr + " - " + endStr + " - " + doc.title + " - last get: ", doc.getDataTime + " - " + index)
             if (!rows.length) {
                 console.log(`No rows for networkCode=${networkCode}`);
                 continue;
             }
 
-            for (const row of rows) {
-                const reportDoc = mapRowToReportDocs(networkCode, row);
-                //  console.log("reportDoc ", networkCode, reportDoc)
-                if (!reportDoc.date || reportDoc.ad_unit_name === undefined) continue;
-                // return
-                try {
-                    await upsertAdsReport(databases, reportDoc);
-                } catch (e) {
+            // delete all data cũ của khoảng thời gian
+            let startStr1 = startStr + 'T00:00:00.000+00:00';
+            let endStr1 = endStr + 'T23:59:59.999+00:00';
+            const res = await databases.listDocuments(APPWRITE_DATABASE_ID, APPWRITE_ADS_REPORT_COLLECTION_ID, [
+                Query.equal("networkCode", networkCode),
+                Query.greaterThanEqual("date", startStr1),
+                Query.lessThanEqual("date", endStr1),
+                Query.limit(200000)
+            ]);
+            console.log("data cũ: ", res.documents.length)
+            await deleteInBatches(res.documents, 200);
 
-                    console.error(`Upsert failed for ${networkCode}`, e.message);
-                    console.log("update create report: ", reportDoc)
-                }
-            }
+            console.log("Xoá hết data cũ: ", res.documents.length)
+            // fs.writeFileSync('output.txt', JSON.stringify(rows, null, 2), 'utf8');
+            // console.log("Đã ghi file output.txt");
+
+            await upsertInBatches(rows, networkCode, 200);
+
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
             await databases.updateDocument(
@@ -248,7 +283,7 @@ async function runOnce() {
             );
             console.log(`Done networkCode=${networkCode} (${rows.length} row(s))`);
         } catch (e) {
-            console.error(`Fetch failed for networkCode=${networkCode}`, e.message);
+            console.error(`Fetch failed for networkCode=${networkCode}`, e);
         }
     }
 
@@ -294,21 +329,21 @@ runOnce().catch((err) => console.error(err));
 // Lịch cron: mỗi giờ vào phút 0
 let isRunning = false;
 
-cron.schedule('*/5 * * * *', async () => {
-    if (isRunning) {
-        console.log('⏳ Cron đang chạy, bỏ qua lần này.');
-        return;
-    }
+// cron.schedule('*/5 * * * *', async () => {
+//     if (isRunning) {
+//         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
+//         return;
+//     }
 
-    isRunning = true;
-    console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
+//     isRunning = true;
+//     console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
 
-    try {
-        await runOnce();
-    } catch (err) {
-        console.error('❌ Lỗi khi chạy runOnce:', err);
-    } finally {
-        isRunning = false;
-        console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
-    }
-});
+//     try {
+//         await runOnce();
+//     } catch (err) {
+//         console.error('❌ Lỗi khi chạy runOnce:', err);
+//     } finally {
+//         isRunning = false;
+//         console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
+//     }
+// });

@@ -18,7 +18,7 @@ const APPWRITE_NETWORK_CODES_COLLECTION_ID = 'networkCodes'
 const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
 
 
-console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
+// console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
 
 function nowUtcIso() {
     return new Date().toISOString(); // ví dụ: 2025-11-04T03:10:22.123Z
