@@ -42,7 +42,8 @@ router.get('/', async (req, res) => {
     try {
 
         // Lấy dữ liệu từ body
-        const data = req.body;
+        const data = req.query;
+        console.log("data: ", data.mail)
 
         const configs = await databases.listDocuments(
             databaseId,
@@ -53,11 +54,13 @@ router.get('/', async (req, res) => {
             return res.status(201).json({
                 code: "01",
                 success: false,
-                message: "Đơn hàng của bạn không tồn tại.",
+                message: "config của bạn không tồn tại.",
             });
         }
         const result = configs.documents[0]
+         
         const text = convertJsonParamsToString(result.config)
+        console.log("config: ", text)
         res.status(201).json(text);
     } catch (error) {
         console.error('❌ Lỗi khi lưu payment:', error.message);

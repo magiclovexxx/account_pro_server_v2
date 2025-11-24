@@ -66,7 +66,7 @@ function getLast3DaysRange() {
     const now = new Date();
     const end = new Date(now);
     const start = new Date(now);
-    start.setDate(start.getDate() - 0);
+    start.setDate(start.getDate() - 3);
 
     const startStr = toBangkokDateString(start);
     const endStr = toBangkokDateString(end);
@@ -289,7 +289,7 @@ async function deleteAllAdsReports() {
 
 
 // Chạy ngay 1 lần khi khởi động
-// runOnce().catch((err) => console.error(err));
+runOnce().catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
 let isRunning = false;
