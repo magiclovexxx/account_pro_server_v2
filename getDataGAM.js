@@ -169,14 +169,37 @@ function mapRowToReportDocs(networkCode, row) {
 async function upsertAdsReport(databases, doc) {
     try {
 
-        await databases.createDocument(
+        const filters = [
+            Query.equal("networkCode", doc.networkCode),
+            Query.equal('date', doc.date),
+            Query.equal('site', doc.site),
+            Query.equal('ad_unit_name', doc.ad_unit_name || ''),
+        ];
+        const found = await databases.listDocuments(
             APPWRITE_DATABASE_ID,
             APPWRITE_ADS_REPORT_COLLECTION_ID,
-            ID.unique(),
-            doc
+            filters
         );
-
-        return { ok: true, mode: "create" };
+        // console.log("update create report: ", doc)
+        if (found.total > 0) {
+            const existing = found.documents[0];
+            return databases.updateDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_ADS_REPORT_COLLECTION_ID,
+                existing.$id,
+                {
+                    impressions: doc.impressions,
+                    options: doc.options,
+                }
+            );
+        } else {
+            return databases.createDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_ADS_REPORT_COLLECTION_ID,
+                ID.unique(),
+                doc
+            );
+        }
 
     } catch (err) {
         return { ok: false, err, doc };
@@ -213,7 +236,7 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
     return [];
 }
 
-async function runOnce() {
+async function runOnce(days) {
 
 
     // Lấy networkCodes có status = true
@@ -230,7 +253,7 @@ async function runOnce() {
         return;
     }
 
-    const { startStr, endStr } = getLast3DaysRange(7);
+    const { startStr, endStr } = getLast3DaysRange(days);
     // let startStr = '2025-11-17'
     // let endStr = '2025-11-18'
     console.log(
@@ -324,26 +347,45 @@ async function deleteAllAdsReports() {
 
 
 // Chạy ngay 1 lần khi khởi động
-runOnce().catch((err) => console.error(err));
+runOnce(0).catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
 let isRunning = false;
+// return
+cron.schedule('*/15 * * * *', async () => {
+    if (isRunning) {
+        console.log('⏳ Cron đang chạy, bỏ qua lần này.');
+        return;
+    }
 
-// cron.schedule('*/5 * * * *', async () => {
-//     if (isRunning) {
-//         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
-//         return;
-//     }
+    isRunning = true;
+    console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
 
-//     isRunning = true;
-//     console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
+    try {
+        await runOnce(0);
+    } catch (err) {
+        console.error('❌ Lỗi khi chạy runOnce:', err);
+    } finally {
+        isRunning = false;
+        console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
+    }
+});
 
-//     try {
-//         await runOnce();
-//     } catch (err) {
-//         console.error('❌ Lỗi khi chạy runOnce:', err);
-//     } finally {
-//         isRunning = false;
-//         console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
-//     }
-// });
+cron.schedule('* */3 * * *', async () => {
+    if (isRunning) {
+        console.log('⏳ Cron đang chạy, bỏ qua lần này.');
+        return;
+    }
+
+    isRunning = true;
+    console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
+
+    try {
+        await runOnce(7);
+    } catch (err) {
+        console.error('❌ Lỗi khi chạy runOnce:', err);
+    } finally {
+        isRunning = false;
+        console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
+    }
+});
