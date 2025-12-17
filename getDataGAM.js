@@ -31,7 +31,7 @@ const databases = new Databases(client);
 let x = []
 // console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
 // Hàm upsert song song an toàn theo batch
-async function upsertInBatches(rows, networkCode, batchSize = 50) {
+async function upsertInBatches(rows, networkCode, batchSize = 10) {
     let failList = [];
 
     for (let i = 0; i < rows.length; i += batchSize) {
@@ -56,7 +56,7 @@ async function upsertInBatches(rows, networkCode, batchSize = 50) {
 }
 
 
-async function createInBatches(rows, networkCode, batchSize = 50, status = 'updating') {
+async function createInBatches(rows, networkCode, batchSize = 10, status = 'updating') {
     let successCount = 0;
     for (let i = 0; i < rows.length; i += batchSize) {
         const batch = rows.slice(i, i + batchSize);
@@ -83,7 +83,7 @@ async function createInBatches(rows, networkCode, batchSize = 50, status = 'upda
     return successCount;
 }
 
-async function updateStatusInBatches(documents, newStatus, batchSize = 50) {
+async function updateStatusInBatches(documents, newStatus, batchSize = 10) {
     for (let i = 0; i < documents.length; i += batchSize) {
         const batch = documents.slice(i, i + batchSize);
         await Promise.all(
@@ -355,9 +355,9 @@ async function runOnce(days) {
 
             // [NEW] Update status -> 'deleting'
             console.log("Đánh dấu data cũ là 'deleting'...");
-            await updateStatusInBatches(oldRes.documents, 'deleting', 50);
+            await updateStatusInBatches(oldRes.documents, 'deleting', 10);
 
-            await deleteInBatches(oldRes.documents, 50);
+            await deleteInBatches(oldRes.documents, 10);
             console.log("Đã xoá hết data cũ.");
 
             // 3. Cập nhật status='active' cho dữ liệu mới
@@ -369,7 +369,7 @@ async function runOnce(days) {
                 Query.limit(200000)
             ]);
             console.log("Kích hoạt data mới (active): ", newRes.documents.length);
-            await updateStatusInBatches(newRes.documents, 'active', 50);
+            await updateStatusInBatches(newRes.documents, 'active', 10);
 
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
@@ -394,9 +394,9 @@ async function deleteAllAdsReports() {
     try {
         let totalDeleted = 0;
         while (true) {
-            // Lấy tối đa 50 documents mỗi lượt (Appwrite giới hạn 50)
+            // Lấy tối đa 10 documents mỗi lượt (Appwrite giới hạn 10)
             const docs = await databases.listDocuments(APPWRITE_DATABASE_ID, 'adsReport', [
-                Query.limit(50),
+                Query.limit(10),
             ]);
 
             if (docs.total === 0) break;
@@ -407,8 +407,8 @@ async function deleteAllAdsReports() {
                 console.log(`🗑️ Đã xoá document: ${doc.$id}`);
             }
 
-            // Nếu ít hơn 50 thì hết dữ liệu
-            if (docs.documents.length < 50) break;
+            // Nếu ít hơn 10 thì hết dữ liệu
+            if (docs.documents.length < 10) break;
         }
 
         console.log(`✅ Hoàn tất — đã xoá ${totalDeleted} document(s)`);
