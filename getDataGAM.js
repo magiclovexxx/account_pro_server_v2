@@ -72,6 +72,7 @@ async function createInBatches(rows, networkCode, batchSize = 50, status = 'upda
                         doc
                     );
                     successCount++;
+                    console.log("Ghi dữ liệu mới: ", successCount)
                 } catch (err) {
                     console.error('Create error:', err);
                 }
@@ -95,6 +96,7 @@ async function updateStatusInBatches(documents, newStatus, batchSize = 50) {
                 )
             )
         );
+        console.log("update status: ",newStatus,  i + batchSize)
     }
 }
 
