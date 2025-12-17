@@ -521,11 +521,11 @@ async function deleteAllAdsReports() {
 
 
 // Chạy ngay 1 lần khi khởi động
-// runOnce(0).catch((err) => console.error(err));
+// runOnce(90).catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
 // let isRunning = false;
-let isRunning = true;
+let isRunning = false;
 
 cron.schedule('*/15 * * * *', async () => {
     if (isRunning) {
