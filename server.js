@@ -93,7 +93,7 @@ async function genVideo() {
 }
 
 // Bắt đầu chạy vòng lặp an toàn
-genVideo();
+// genVideo();
 
 (async () => {
 

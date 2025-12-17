@@ -173,28 +173,6 @@ router.get('/report', async (req, res) => {
 
     console.log('GAM report request for network:', networkCode);
 
-    const reportQuery = {
-      dimensions: ['DATE', 'AD_UNIT_NAME'],
-      columns: ['TOTAL_LINE_ITEM_LEVEL_IMPRESSIONS', 'TOTAL_LINE_ITEM_LEVEL_CLICKS'],
-      dateRangeType: 'LAST_WEEK'
-    };
-
-    const result = await getGAMReport({
-      networkCode,
-      clientId,
-      clientSecret,
-      refreshToken,
-      reportQuery,
-      outputFile: `gam_report_${networkCode}.csv`
-    });
-
-    if (!result.success) {
-      return res.status(500).json({
-        success: false,
-        message: result.error,
-        details: result.details
-      });
-    }
 
     res.json({
       success: true,

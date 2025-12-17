@@ -18,8 +18,8 @@ const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY
 const APPWRITE_ADS_REPORT_COLLECTION_ID = 'adsReport'
 const APPWRITE_NETWORK_CODES_COLLECTION_ID = 'networkCodes'
-const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
-// const BASE_REPORT_URL = 'http://192.168.1.100:5000/gam/report';
+// const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
+const BASE_REPORT_URL = 'http://42.96.15.241:5000/gam/report';
 
 
 const client = new Client()
@@ -55,6 +55,48 @@ async function upsertInBatches(rows, networkCode, batchSize = 50) {
     return failList;
 }
 
+
+async function createInBatches(rows, networkCode, batchSize = 50, status = 'updating') {
+    let successCount = 0;
+    for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        await Promise.all(
+            batch.map(async (row) => {
+                const doc = mapRowToReportDocs(networkCode, row);
+                doc.status = status;
+                try {
+                    await databases.createDocument(
+                        APPWRITE_DATABASE_ID,
+                        APPWRITE_ADS_REPORT_COLLECTION_ID,
+                        ID.unique(),
+                        doc
+                    );
+                    successCount++;
+                } catch (err) {
+                    console.error('Create error:', err);
+                }
+            })
+        );
+        console.log(`Đã tạo (${status}): ${Math.min(i + batchSize, rows.length)}/${rows.length}`);
+    }
+    return successCount;
+}
+
+async function updateStatusInBatches(documents, newStatus, batchSize = 50) {
+    for (let i = 0; i < documents.length; i += batchSize) {
+        const batch = documents.slice(i, i + batchSize);
+        await Promise.all(
+            batch.map(doc =>
+                databases.updateDocument(
+                    APPWRITE_DATABASE_ID,
+                    APPWRITE_ADS_REPORT_COLLECTION_ID,
+                    doc.$id,
+                    { status: newStatus }
+                )
+            )
+        );
+    }
+}
 
 function nowUtcIso() {
     return new Date().toISOString(); // ví dụ: 2025-11-04T03:10:22.123Z
@@ -278,23 +320,54 @@ async function runOnce(days) {
                 continue;
             }
 
-            // delete all data cũ của khoảng thời gian
+            // 0. Xoá rác (nếu có) status = 'updating' trước khi tạo mới
             let startStr1 = startStr + 'T00:00:00.000+00:00';
             let endStr1 = endStr + 'T23:59:59.999+00:00';
-            const res = await databases.listDocuments(APPWRITE_DATABASE_ID, APPWRITE_ADS_REPORT_COLLECTION_ID, [
+
+            const junkRes = await databases.listDocuments(APPWRITE_DATABASE_ID, APPWRITE_ADS_REPORT_COLLECTION_ID, [
                 Query.equal("networkCode", networkCode),
                 Query.greaterThanEqual("date", startStr1),
                 Query.lessThanEqual("date", endStr1),
+                Query.equal("status", "updating"),
                 Query.limit(200000)
             ]);
-            console.log("data cũ: ", res.documents.length)
-            await deleteInBatches(res.documents, 200);
+            if (junkRes.total > 0) {
+                console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
+                await deleteInBatches(junkRes.documents, 200);
+            }
 
-            console.log("Xoá hết data cũ: ", res.documents.length)
-            // fs.writeFileSync('output.txt', JSON.stringify(rows, null, 2), 'utf8');
-            // console.log("Đã ghi file output.txt");
+            // 1. Ghi dữ liệu mới với status = 'updating'
+            console.log("Bắt đầu ghi dữ liệu mới (status=updating)...");
+            await createInBatches(rows, networkCode, 200, 'updating');
 
-            await upsertInBatches(rows, networkCode, 200);
+            // 2. Xoá dữ liệu cũ (status != 'updating')
+            // Lưu ý: data cũ ở đây là data đang active (hoặc status khác updating)
+            const oldRes = await databases.listDocuments(APPWRITE_DATABASE_ID, APPWRITE_ADS_REPORT_COLLECTION_ID, [
+                Query.equal("networkCode", networkCode),
+                Query.greaterThanEqual("date", startStr1),
+                Query.lessThanEqual("date", endStr1),
+                Query.notEqual("status", "updating"),
+                Query.limit(200000)
+            ]);
+            console.log("Data cũ cần xoá: ", oldRes.documents.length)
+
+            // [NEW] Update status -> 'deleting'
+            console.log("Đánh dấu data cũ là 'deleting'...");
+            await updateStatusInBatches(oldRes.documents, 'deleting', 200);
+
+            await deleteInBatches(oldRes.documents, 200);
+            console.log("Đã xoá hết data cũ.");
+
+            // 3. Cập nhật status='active' cho dữ liệu mới
+            const newRes = await databases.listDocuments(APPWRITE_DATABASE_ID, APPWRITE_ADS_REPORT_COLLECTION_ID, [
+                Query.equal("networkCode", networkCode),
+                Query.greaterThanEqual("date", startStr1),
+                Query.lessThanEqual("date", endStr1),
+                Query.equal("status", "updating"),
+                Query.limit(200000)
+            ]);
+            console.log("Kích hoạt data mới (active): ", newRes.documents.length);
+            await updateStatusInBatches(newRes.documents, 'active', 200);
 
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
