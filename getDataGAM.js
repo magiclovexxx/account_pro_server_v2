@@ -335,12 +335,12 @@ async function runOnce(days) {
             ]);
             if (junkRes.total > 0) {
                 console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
-                await deleteInBatches(junkRes.documents, 100);
+                await deleteInBatches(junkRes.documents, 50);
             }
 
             // 1. Ghi dữ liệu mới với status = 'updating'
             console.log("Bắt đầu ghi dữ liệu mới (status=updating)...");
-            await createInBatches(rows, networkCode, 100, 'updating');
+            await createInBatches(rows, networkCode, 50, 'updating');
 
             // 2. Xoá dữ liệu cũ (status != 'updating')
             // Lưu ý: data cũ ở đây là data đang active (hoặc status khác updating)
@@ -355,9 +355,9 @@ async function runOnce(days) {
 
             // [NEW] Update status -> 'deleting'
             console.log("Đánh dấu data cũ là 'deleting'...");
-            await updateStatusInBatches(oldRes.documents, 'deleting', 100);
+            await updateStatusInBatches(oldRes.documents, 'deleting', 50);
 
-            await deleteInBatches(oldRes.documents, 100);
+            await deleteInBatches(oldRes.documents, 50);
             console.log("Đã xoá hết data cũ.");
 
             // 3. Cập nhật status='active' cho dữ liệu mới
@@ -369,7 +369,7 @@ async function runOnce(days) {
                 Query.limit(200000)
             ]);
             console.log("Kích hoạt data mới (active): ", newRes.documents.length);
-            await updateStatusInBatches(newRes.documents, 'active', 100);
+            await updateStatusInBatches(newRes.documents, 'active', 50);
 
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
@@ -394,9 +394,9 @@ async function deleteAllAdsReports() {
     try {
         let totalDeleted = 0;
         while (true) {
-            // Lấy tối đa 100 documents mỗi lượt (Appwrite giới hạn 100)
+            // Lấy tối đa 50 documents mỗi lượt (Appwrite giới hạn 50)
             const docs = await databases.listDocuments(APPWRITE_DATABASE_ID, 'adsReport', [
-                Query.limit(100),
+                Query.limit(50),
             ]);
 
             if (docs.total === 0) break;
@@ -407,8 +407,8 @@ async function deleteAllAdsReports() {
                 console.log(`🗑️ Đã xoá document: ${doc.$id}`);
             }
 
-            // Nếu ít hơn 100 thì hết dữ liệu
-            if (docs.documents.length < 100) break;
+            // Nếu ít hơn 50 thì hết dữ liệu
+            if (docs.documents.length < 50) break;
         }
 
         console.log(`✅ Hoàn tất — đã xoá ${totalDeleted} document(s)`);
