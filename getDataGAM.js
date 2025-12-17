@@ -333,12 +333,12 @@ async function runOnce(days) {
             ]);
             if (junkRes.total > 0) {
                 console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
-                await deleteInBatches(junkRes.documents, 200);
+                await deleteInBatches(junkRes.documents, 100);
             }
 
             // 1. Ghi dữ liệu mới với status = 'updating'
             console.log("Bắt đầu ghi dữ liệu mới (status=updating)...");
-            await createInBatches(rows, networkCode, 200, 'updating');
+            await createInBatches(rows, networkCode, 100, 'updating');
 
             // 2. Xoá dữ liệu cũ (status != 'updating')
             // Lưu ý: data cũ ở đây là data đang active (hoặc status khác updating)
@@ -353,9 +353,9 @@ async function runOnce(days) {
 
             // [NEW] Update status -> 'deleting'
             console.log("Đánh dấu data cũ là 'deleting'...");
-            await updateStatusInBatches(oldRes.documents, 'deleting', 200);
+            await updateStatusInBatches(oldRes.documents, 'deleting', 100);
 
-            await deleteInBatches(oldRes.documents, 200);
+            await deleteInBatches(oldRes.documents, 100);
             console.log("Đã xoá hết data cũ.");
 
             // 3. Cập nhật status='active' cho dữ liệu mới
@@ -367,7 +367,7 @@ async function runOnce(days) {
                 Query.limit(200000)
             ]);
             console.log("Kích hoạt data mới (active): ", newRes.documents.length);
-            await updateStatusInBatches(newRes.documents, 'active', 200);
+            await updateStatusInBatches(newRes.documents, 'active', 100);
 
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
