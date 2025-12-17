@@ -72,7 +72,7 @@ async function createInBatches(rows, networkCode, batchSize = 50, status = 'upda
                         doc
                     );
                     successCount++;
-                    console.log("Ghi dữ liệu mới: ", successCount)
+                    
                 } catch (err) {
                     console.error('Create error:', err);
                 }
@@ -335,12 +335,12 @@ async function runOnce(days) {
             ]);
             if (junkRes.total > 0) {
                 console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
-                await deleteInBatches(junkRes.documents, 50);
+                await deleteInBatches(junkRes.documents, 15);
             }
 
             // 1. Ghi dữ liệu mới với status = 'updating'
             console.log("Bắt đầu ghi dữ liệu mới (status=updating)...");
-            await createInBatches(rows, networkCode, 50, 'updating');
+            await createInBatches(rows, networkCode, 20, 'updating');
 
             // 2. Xoá dữ liệu cũ (status != 'updating')
             // Lưu ý: data cũ ở đây là data đang active (hoặc status khác updating)
