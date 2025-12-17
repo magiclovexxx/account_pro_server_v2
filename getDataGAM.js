@@ -31,7 +31,7 @@ const databases = new Databases(client);
 let x = []
 // console.log("APPWRITE_ENDPOINT: ", APPWRITE_ENDPOINT)
 // Hàm upsert song song an toàn theo batch
-async function upsertInBatches(rows, networkCode, batchSize = 10) {
+async function upsertInBatches(rows, networkCode, batchSize = 100) {
     let failList = [];
 
     for (let i = 0; i < rows.length; i += batchSize) {
@@ -56,52 +56,80 @@ async function upsertInBatches(rows, networkCode, batchSize = 10) {
 }
 
 
-async function createInBatches(rows, networkCode, batchSize = 10, status = 'updating') {
-    let successCount = 0;
-    for (let i = 0; i < rows.length; i += batchSize) {
-        const batch = rows.slice(i, i + batchSize);
-        await Promise.all(
-            batch.map(async (row) => {
-                const doc = mapRowToReportDocs(networkCode, row);
-                doc.status = status;
-                try {
-                    await databases.createDocument(
-                        APPWRITE_DATABASE_ID,
-                        APPWRITE_ADS_REPORT_COLLECTION_ID,
-                        ID.unique(),
-                        doc
-                    );
-                    successCount++;
-                    
-                } catch (err) {
-                    console.error('Create error:', err);
-                }
-            })
-        );
-        console.log(`Đã tạo (${status}): ${Math.min(i + batchSize, rows.length)}/${rows.length}`);
+// Helper: Concurrency Pool
+async function runConcurrent(items, concurrency, fn) {
+    const results = [];
+    const executing = [];
+    for (const item of items) {
+        const p = fn(item).then(res => {
+            executing.splice(executing.indexOf(p), 1);
+            return res;
+        });
+        results.push(p);
+        executing.push(p);
+        if (executing.length >= concurrency) {
+            await Promise.race(executing);
+        }
     }
+    return Promise.all(results);
+}
+
+async function createDocsConcurrent(docs, concurrency = 50) {
+    let successCount = 0;
+    await runConcurrent(docs, concurrency, async (doc) => {
+        try {
+            await databases.createDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_ADS_REPORT_COLLECTION_ID,
+                ID.unique(),
+                doc
+            );
+            successCount++;
+        } catch (err) {
+            console.error('Create error:', err);
+        }
+    });
+    console.log(`Đã tạo (${docs.length > 0 ? docs[0].status : ''}): ${successCount}/${docs.length}`);
     return successCount;
 }
 
-async function updateStatusInBatches(documents, newStatus, batchSize = 10) {
-    for (let i = 0; i < documents.length; i += batchSize) {
-        const batch = documents.slice(i, i + batchSize);
-        await Promise.all(
-            batch.map(doc =>
-                databases.updateDocument(
-                    APPWRITE_DATABASE_ID,
-                    APPWRITE_ADS_REPORT_COLLECTION_ID,
-                    doc.$id,
-                    { status: newStatus }
-                )
-            )
-        );
-        console.log("update status: ",newStatus,  i + batchSize)
-    }
+async function updateStatusConcurrent(documents, newStatus, concurrency = 100) {
+    let count = 0;
+    await runConcurrent(documents, concurrency, async (doc) => {
+        try {
+            await databases.updateDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_ADS_REPORT_COLLECTION_ID,
+                doc.$id,
+                { status: newStatus }
+            );
+            count++;
+        } catch (err) {
+            console.error('Update status error:', err);
+        }
+    });
+    console.log(`Đã update status='${newStatus}': ${count}/${documents.length}`);
+}
+
+async function deleteConcurrent(documents, concurrency = 100) {
+    let count = 0;
+    await runConcurrent(documents, concurrency, async (doc) => {
+        try {
+            await databases.deleteDocument(
+                APPWRITE_DATABASE_ID,
+                APPWRITE_ADS_REPORT_COLLECTION_ID,
+                doc.$id
+            );
+            count++;
+        } catch (err) {
+            console.error('Delete error:', err);
+        }
+    });
+    console.log(`Đã xoá: ${count}/${documents.length}`);
 }
 
 function nowUtcIso() {
-    return new Date().toISOString(); // ví dụ: 2025-11-04T03:10:22.123Z
+    return new Date().toISOString(); // ví dụ: 2025-11-04T03:100:22.123Z
 }
 
 // Hoặc nếu bạn muốn lưu rõ múi giờ Bangkok (+07:00)
@@ -143,23 +171,7 @@ function getLast3DaysRange(day) {
 }
 
 
-async function deleteInBatches(documents, batchSize = 30) {
-    for (let i = 0; i < documents.length; i += batchSize) {
-        const batch = documents.slice(i, i + batchSize);
 
-        await Promise.all(
-            batch.map(doc =>
-                databases.deleteDocument(
-                    APPWRITE_DATABASE_ID,
-                    APPWRITE_ADS_REPORT_COLLECTION_ID,
-                    doc.$id
-                )
-            )
-        );
-
-        console.log(`Đã xoá ${i + batch.length}/${documents.length} docs`);
-    }
-}
 
 // Chuẩn hoá dữ liệu hàng từ API thành record cho adsReport
 function mapRowToReportDocs(networkCode, row) {
@@ -195,7 +207,7 @@ function mapRowToReportDocs(networkCode, row) {
     const option = {
 
     }
-    // const onlyDate = (dateRaw ?? '').toString().slice(0, 10);
+    // const onlyDate = (dateRaw ?? '').toString().slice(0, 100);
     // const isoDate = `${onlyDate}T00:00:00-08:00`;
 
     const impressions = impressionsRaw != null ? Number(impressionsRaw) : 0;
@@ -203,10 +215,94 @@ function mapRowToReportDocs(networkCode, row) {
     return {
         networkCode: String(networkCode),
         date: dateRaw,
-        site: site,
-        ad_unit_name: adUnitName ? String(adUnitName) : '',
-        options: JSON.stringify(row),
+        // site: site, // removed
+        // ad_unit_name: adUnitName ? String(adUnitName) : '', // removed
+        options: JSON.stringify(row), // Full row details
     };
+}
+
+function parseNumber(val) {
+    if (val === null || val === undefined) return 0;
+    if (typeof val === 'number') return val;
+    return Number(String(val).replace(/,/g, '')) || 0;
+}
+
+function aggregateRows(rows, networkCode) {
+    const groups = {};
+
+    for (const row of rows) {
+        if (Object.keys(groups).length === 0 && groups.constructor === Object) {
+            console.log("DEBUG FIRST ROW KEYS:", JSON.stringify(row, null, 2));
+        }
+        // Extract Date
+        const dateRaw = row.DATE ?? row.date ?? row.day ?? row.Date ?? row['DATE'] ?? row['date'] ?? row['Date'];
+        if (!dateRaw) continue; // Skip if no date
+
+        // Normalize Date (assuming YYYY-MM-DD format in row)
+        const dateKey = String(dateRaw).split('T')[0];
+
+        if (!groups[dateKey]) {
+            groups[dateKey] = {
+                rows: [],
+                impressions: 0,
+                clicks: 0,
+                revenue: 0
+            };
+        }
+
+        const g = groups[dateKey];
+
+        // Metrics keys: check common variations + ADX specific
+        const impr = row.IMPRESSIONS ?? row.impressions ?? row['IMPRESSIONS'] ?? row['impressions'] ?? row.mk_impressions ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS ?? 0;
+        const clicks = row.CLICKS ?? row.clicks ?? row['CLICKS'] ?? row['clicks'] ?? row.mk_clicks ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS ?? 0;
+        const rev = row.REVENUE ?? row.revenue ?? row['REVENUE'] ?? row['revenue'] ?? row.mk_revenue ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE ?? 0;
+
+        // DEBUG LOG for first few iterations
+        if (Math.random() < 0.01) {
+            console.log("DEBUG ROW:", { date: dateKey, impr, clicks, rev, parsedRev: parseNumber(rev) });
+        }
+
+        g.rows.push(row);
+        g.impressions += parseNumber(impr);
+        g.clicks += parseNumber(clicks);
+        g.revenue += parseNumber(rev);
+    }
+
+    // Convert to doc array
+    const docs = [];
+    for (const [date, data] of Object.entries(groups)) {
+        let ecpm = 0;
+        // Chia 10^6 nếu revenue là micros (chưa chắc chắn, check log trước)
+        // Hiện tại giữ nguyên logic nhưng log ra kết quả
+        if (data.impressions > 0) {
+            ecpm = (data.revenue / data.impressions) * 1000;
+        }
+
+        console.log(`DEBUG AGG: ${date} | Impr: ${data.impressions} | Rev: ${data.revenue} | eCPM: ${ecpm}`);
+
+        // Appwrite DateTime: YYYY-MM-DDTHH:mm:ss.sss+00:00
+        // Ensure date is valid for parsing
+        let isoDate;
+        try {
+            // Simplest approach: append time if missing
+            if (date.length === 10) isoDate = `${date}T00:00:00.000+00:00`;
+            else isoDate = new Date(date).toISOString();
+        } catch (e) {
+            isoDate = new Date().toISOString();
+        }
+
+        docs.push({
+            networkCode: String(networkCode),
+            date: isoDate,
+            impressions: data.impressions,
+            clicks: data.clicks,
+            revenue: data.revenue,
+            ecpm: ecpm,
+            options: JSON.stringify(data.rows),
+            status: 'updating'
+        });
+    }
+    return docs;
 }
 
 // Upsert theo (networkCode, date, ad_unit_name)
@@ -255,6 +351,7 @@ async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
     const url = new URL(BASE_REPORT_URL);
     url.searchParams.set('preset', 'adx');
     url.searchParams.set('dimensions', 'DATE_PT,SITE_NAME,AD_UNIT_ID,AD_UNIT_NAME');
+    url.searchParams.set('columns', 'AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS,AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS,AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE');
     url.searchParams.set('time_zone_type', 'PACIFIC');
     url.searchParams.set('ad_unit_view', 'FLAT');
     url.searchParams.set('start_date', startStr);
@@ -335,12 +432,17 @@ async function runOnce(days) {
             ]);
             if (junkRes.total > 0) {
                 console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
-                await deleteInBatches(junkRes.documents, 15);
+                await deleteConcurrent(junkRes.documents, 100);
             }
+
+            // 1. Prepare aggregated data
+            console.log("Aggregating data...");
+            const aggregatedDocs = aggregateRows(rows, networkCode);
+            console.log(`Gộp ${rows.length} rows -> ${aggregatedDocs.length} aggregated docs`);
 
             // 1. Ghi dữ liệu mới với status = 'updating'
             console.log("Bắt đầu ghi dữ liệu mới (status=updating)...");
-            await createInBatches(rows, networkCode, 20, 'updating');
+            await createDocsConcurrent(aggregatedDocs, 100);
 
             // 2. Xoá dữ liệu cũ (status != 'updating')
             // Lưu ý: data cũ ở đây là data đang active (hoặc status khác updating)
@@ -353,11 +455,8 @@ async function runOnce(days) {
             ]);
             console.log("Data cũ cần xoá: ", oldRes.documents.length)
 
-            // [NEW] Update status -> 'deleting'
-            console.log("Đánh dấu data cũ là 'deleting'...");
-            await updateStatusInBatches(oldRes.documents, 'deleting', 10);
-
-            await deleteInBatches(oldRes.documents, 10);
+            // [OPT] Bỏ qua bước update status='deleting' để tăng tốc
+            await deleteConcurrent(oldRes.documents, 100);
             console.log("Đã xoá hết data cũ.");
 
             // 3. Cập nhật status='active' cho dữ liệu mới
@@ -369,7 +468,7 @@ async function runOnce(days) {
                 Query.limit(200000)
             ]);
             console.log("Kích hoạt data mới (active): ", newRes.documents.length);
-            await updateStatusInBatches(newRes.documents, 'active', 10);
+            await updateStatusConcurrent(newRes.documents, 'active', 100);
 
             const useBangkok = ""
             const iso = useBangkok ? nowBangkokIso() : nowUtcIso();
@@ -394,9 +493,9 @@ async function deleteAllAdsReports() {
     try {
         let totalDeleted = 0;
         while (true) {
-            // Lấy tối đa 10 documents mỗi lượt (Appwrite giới hạn 10)
+            // Lấy tối đa 100 documents mỗi lượt (Appwrite giới hạn 100)
             const docs = await databases.listDocuments(APPWRITE_DATABASE_ID, 'adsReport', [
-                Query.limit(10),
+                Query.limit(100),
             ]);
 
             if (docs.total === 0) break;
@@ -407,8 +506,8 @@ async function deleteAllAdsReports() {
                 console.log(`🗑️ Đã xoá document: ${doc.$id}`);
             }
 
-            // Nếu ít hơn 10 thì hết dữ liệu
-            if (docs.documents.length < 10) break;
+            // Nếu ít hơn 100 thì hết dữ liệu
+            if (docs.documents.length < 100) break;
         }
 
         console.log(`✅ Hoàn tất — đã xoá ${totalDeleted} document(s)`);
@@ -422,11 +521,12 @@ async function deleteAllAdsReports() {
 
 
 // Chạy ngay 1 lần khi khởi động
-runOnce(0).catch((err) => console.error(err));
+// runOnce(0).catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-let isRunning = false;
-// return
+// let isRunning = false;
+let isRunning = true;
+
 cron.schedule('*/15 * * * *', async () => {
     if (isRunning) {
         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
