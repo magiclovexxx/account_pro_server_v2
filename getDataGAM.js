@@ -15,7 +15,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // ====== Service Account Auth (Google Ad Manager API v1) ======
-const SERVICE_ACCOUNT_PATH = path.resolve(__dirname, '..', 'GAM', 'account.json');
+const SERVICE_ACCOUNT_PATH = path.resolve(__dirname, 'account.json');
 const GAM_API_BASE = 'https://admanager.googleapis.com/v1';
 const GAM_SCOPES = ['https://www.googleapis.com/auth/admanager'];
 
@@ -686,7 +686,7 @@ cron.schedule('*/15 * * * *', async () => {
     }
 });
 
-cron.schedule('0 */3 * * *', async () => {
+cron.schedule('* */5 * * *', async () => {
     if (isRunning) {
         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
         return;
