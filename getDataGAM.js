@@ -8,8 +8,176 @@ dotenv.config();
 import fs from 'fs';
 import path from 'path';
 import axios from 'axios';
-// (Tuỳ chọn) Tải biến môi trường từ .env
-// import 'dotenv/config';
+import { google } from 'googleapis';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// ====== Service Account Auth (Google Ad Manager API v1) ======
+const SERVICE_ACCOUNT_PATH = path.resolve(__dirname, '..', 'GAM', 'account.json');
+const GAM_API_BASE = 'https://admanager.googleapis.com/v1';
+const GAM_SCOPES = ['https://www.googleapis.com/auth/admanager'];
+
+/**
+ * Lấy access token từ Service Account JSON.
+ */
+async function getServiceAccountToken() {
+    const keyFile = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
+    const auth = new google.auth.GoogleAuth({
+        credentials: keyFile,
+        scopes: GAM_SCOPES,
+    });
+    const client = await auth.getClient();
+    const tokenResp = await client.getAccessToken();
+    return tokenResp.token;
+}
+
+/**
+ * Parse "YYYY-MM-DD" → { year, month, day } cho GAM API dateRange.fixed
+ */
+function parseDateToObj(dateStr) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return { year, month, day };
+}
+
+/**
+ * Lấy Report data từ Google Ad Manager API Beta v1.
+ * Luồng: Create Report → Run Report → Poll Operation → Fetch Rows (phân trang).
+ * Trả về mảng các plain object { DATE, AD_UNIT_NAME, AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS, ... }
+ */
+async function fetchReportFromGAMApiV1(networkCode, startStr, endStr) {
+    const accessToken = await getServiceAccountToken();
+    const headers = {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+    };
+
+    const dimensions = ['DATE', 'SITE', 'AD_UNIT_NAME'];
+    const metrics = [
+        'AD_EXCHANGE_IMPRESSIONS',
+        'AD_EXCHANGE_CLICKS',
+        'AD_EXCHANGE_REVENUE',
+        'AD_EXCHANGE_AVERAGE_ECPM',
+        'AD_REQUESTS',
+        'AD_EXCHANGE_MATCH_RATE',
+        'AD_EXCHANGE_CTR',
+    ];
+
+    // --- Bước 1: Tạo Report ---
+    const reportBody = {
+        displayName: `Cron Report ${networkCode} ${startStr}~${endStr} ${Date.now()}`,
+        reportDefinition: {
+            dimensions,
+            metrics,
+            dateRange: {
+                fixed: {
+                    startDate: parseDateToObj(startStr),
+                    endDate: parseDateToObj(endStr),
+                },
+            },
+            reportType: 'HISTORICAL',
+            currencyCode: 'USD',
+        },
+    };
+
+    console.log(`  [GAM v1] [${networkCode}] Tạo report...`);
+    const createRes = await axios.post(
+        `${GAM_API_BASE}/networks/${networkCode}/reports`,
+        reportBody,
+        { headers }
+    );
+    const reportName = createRes.data.name;
+    const reportId = createRes.data.reportId;
+    console.log(`  [GAM v1] [${networkCode}] reportId=${reportId}`);
+
+    // --- Bước 2: Chạy Report ---
+    const runRes = await axios.post(
+        `${GAM_API_BASE}/${reportName}:run`,
+        {},
+        { headers }
+    );
+    const operationName = runRes.data.name;
+    const operationId = operationName.split('/').pop();
+    console.log(`  [GAM v1] [${networkCode}] operationId=${operationId}, đang chờ...`);
+
+    // --- Bước 3: Poll trạng thái ---
+    let resultName = null;
+    const maxPolls = 72; // tối đa ~6 phút (72 × 5s)
+    for (let i = 0; i < maxPolls; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const pollRes = await axios.get(
+            `${GAM_API_BASE}/networks/${networkCode}/operations/reports/runs/${operationId}`,
+            { headers }
+        );
+        const done = pollRes.data.done;
+        const pct = pollRes.data.metadata?.percentComplete ?? 0;
+        console.log(`  [GAM v1] [${networkCode}] Poll ${i + 1}: done=${done}, ${pct}%`);
+        if (done) {
+            resultName = pollRes.data.response?.reportResult;
+            break;
+        }
+    }
+
+    if (!resultName) {
+        throw new Error(`[GAM v1] [${networkCode}] Report timeout sau ${maxPolls * 5}s`);
+    }
+    console.log(`  [GAM v1] [${networkCode}] Result ready: ${resultName}`);
+
+    // --- Bước 4: Fetch Rows (phân trang) ---
+    const rows = [];
+    let pageToken = null;
+
+    do {
+        const fetchUrl = new URL(`${GAM_API_BASE}/${resultName}:fetchRows`);
+        fetchUrl.searchParams.set('pageSize', '10000');
+        if (pageToken) fetchUrl.searchParams.set('pageToken', pageToken);
+
+        const fetchRes = await axios.get(fetchUrl.toString(), { headers });
+        const rawRows = fetchRes.data.rows || [];
+        pageToken = fetchRes.data.nextPageToken || null;
+
+        for (const rawRow of rawRows) {
+            const dimVals = rawRow.dimensionValues || [];
+            const primaryVals = (rawRow.metricValueGroups?.[0]?.primaryValues) || [];
+
+            // Parse raw values theo đúng thứ tự dimensions/metrics
+            const dimMap = {};
+            dimensions.forEach((dim, i) => {
+                const dv = dimVals[i];
+                dimMap[dim] = dv?.stringValue ?? String(dv?.intValue ?? dv?.doubleValue ?? '');
+            });
+            const metMap = {};
+            metrics.forEach((metric, i) => {
+                const mv = primaryVals[i];
+                metMap[metric] = mv?.doubleValue != null ? Number(mv.doubleValue)
+                              : mv?.intValue != null ? parseInt(mv.intValue, 10) : 0;
+            });
+
+            const revenueUsd = metMap['AD_EXCHANGE_REVENUE'] || 0;
+            const ecpmUsd    = metMap['AD_EXCHANGE_AVERAGE_ECPM'] || 0;
+
+            const obj = {
+                'Date':       dimMap['DATE'],
+                'Site':       dimMap['SITE'] || '',
+                'Ad unit':    dimMap['AD_UNIT_NAME'] || '',
+                'AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS': metMap['AD_EXCHANGE_IMPRESSIONS'],
+                'AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS':      metMap['AD_EXCHANGE_CLICKS'],
+                'AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE':     Math.round(revenueUsd * 1_000_000),
+                'AD_EXCHANGE_LINE_ITEM_LEVEL_AVERAGE_ECPM': Math.round(ecpmUsd * 1_000_000),
+                'AD_EXCHANGE_LINE_ITEM_LEVEL_CTR':         metMap['AD_EXCHANGE_CTR'],
+                'AD_EXCHANGE_TOTAL_REQUESTS':              metMap['AD_REQUESTS'],
+                'AD_EXCHANGE_MATCH_RATE':                  metMap['AD_EXCHANGE_MATCH_RATE'],
+            };
+            rows.push(obj);
+        }
+
+        console.log(`  [GAM v1] [${networkCode}] Fetched ${rows.length} rows tổng (pageToken: ${pageToken ? 'có' : 'hết'})`);
+    } while (pageToken);
+
+    console.log(`  [GAM v1] [${networkCode}] Tổng ${rows.length} rows.`);
+    return rows;
+}
 
 
 const APPWRITE_ENDPOINT = process.env.APPWRITE_ENDPOINT
@@ -18,7 +186,6 @@ const APPWRITE_DATABASE_ID = process.env.APPWRITE_DATABASE_ID
 const APPWRITE_API_KEY = process.env.APPWRITE_API_KEY
 const APPWRITE_ADS_REPORT_COLLECTION_ID = 'adsReport'
 const APPWRITE_NETWORK_CODES_COLLECTION_ID = 'networkCodes'
-const BASE_REPORT_URL = 'https://account.pro.vn/python-api/gam/report';
 // const BASE_REPORT_URL = 'http://42.96.15.241:5000/gam/report';
 
 
@@ -231,73 +398,69 @@ function aggregateRows(rows, networkCode) {
     const groups = {};
 
     for (const row of rows) {
-        if (Object.keys(groups).length === 0 && groups.constructor === Object) {
-            console.log("DEBUG FIRST ROW KEYS:", JSON.stringify(row, null, 2));
+        if (Object.keys(groups).length === 0) {
+            console.log("[AGG] Sample row keys:", JSON.stringify(Object.keys(row)));
         }
-        // Extract Date
-        const dateRaw = row.DATE ?? row.date ?? row.day ?? row.Date ?? row['DATE'] ?? row['date'] ?? row['Date'];
-        if (!dateRaw) continue; // Skip if no date
+        // Rows đã transform sang format cũ: key 'Date', 'Site', 'Ad unit', 'AD_EXCHANGE_LINE_ITEM_LEVEL_*'
+        // Date có thể ở dạng "YYYYMMDD" hoặc "YYYY-MM-DD"
+        const dateRaw = row['Date'] ?? row.DATE ?? row.date ?? null;
+        if (!dateRaw) continue;
 
-        // Normalize Date (assuming YYYY-MM-DD format in row)
-        const dateKey = String(dateRaw).split('T')[0];
+        // Normalize về YYYY-MM-DD
+        let dateKey = String(dateRaw).split('T')[0];
+        if (dateKey.length === 8 && !dateKey.includes('-')) {
+            dateKey = `${dateKey.slice(0, 4)}-${dateKey.slice(4, 6)}-${dateKey.slice(6, 8)}`;
+        }
 
         if (!groups[dateKey]) {
-            groups[dateKey] = {
-                rows: [],
-                impressions: 0,
-                clicks: 0,
-                revenue: 0
-            };
+            groups[dateKey] = { rows: [], impressions: 0, clicks: 0, revenue: 0 };
         }
 
         const g = groups[dateKey];
 
-        // Metrics keys: check common variations + ADX specific
-        const impr = row.IMPRESSIONS ?? row.impressions ?? row['IMPRESSIONS'] ?? row['impressions'] ?? row.mk_impressions ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS ?? 0;
-        const clicks = row.CLICKS ?? row.clicks ?? row['CLICKS'] ?? row['clicks'] ?? row.mk_clicks ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS ?? 0;
-        const rev = row.REVENUE ?? row.revenue ?? row['REVENUE'] ?? row['revenue'] ?? row.mk_revenue ?? row.AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE ?? 0;
+        // Rows dùng key format cũ, revenue đã ở dạng micros (×1M)
+        const impr = row['AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS'] ?? 0;
+        const clicks = row['AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS'] ?? 0;
+        const revMicros = row['AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE'] ?? 0;
+        const rev = parseNumber(revMicros) / 1_000_000; // đổi sang USD để tính tổng
 
-        // DEBUG LOG for first few iterations
-        if (Math.random() < 0.01) {
-            console.log("DEBUG ROW:", { date: dateKey, impr, clicks, rev, parsedRev: parseNumber(rev) });
-        }
 
         g.rows.push(row);
         g.impressions += parseNumber(impr);
         g.clicks += parseNumber(clicks);
-        g.revenue += parseNumber(rev);
+        g.revenue += rev;
     }
 
-    // Convert to doc array
     const docs = [];
     for (const [date, data] of Object.entries(groups)) {
         let ecpm = 0;
-        // Chia 10^6 nếu revenue là micros (chưa chắc chắn, check log trước)
-        // Hiện tại giữ nguyên logic nhưng log ra kết quả
+        // Revenue đã được chuyển sang USD (không phải micros nữa)
         if (data.impressions > 0) {
             ecpm = (data.revenue / data.impressions) * 1000;
         }
 
-        console.log(`DEBUG AGG: ${date} | Impr: ${data.impressions} | Rev: ${data.revenue} | eCPM: ${ecpm}`);
+        console.log(`[AGG] ${date} | Impr: ${data.impressions} | Rev: $${data.revenue.toFixed(4)} | eCPM: $${ecpm.toFixed(4)}`);
 
-        // Appwrite DateTime: YYYY-MM-DDTHH:mm:ss.sss+00:00
-        // Ensure date is valid for parsing
         let isoDate;
         try {
-            // Simplest approach: append time if missing
             if (date.length === 10) isoDate = `${date}T00:00:00.000+00:00`;
             else isoDate = new Date(date).toISOString();
         } catch (e) {
             isoDate = new Date().toISOString();
         }
 
+        // Revenue lưu trong Appwrite ở đơn vị USD (không phải micros)
+        // Để tương thích ngược với frontend đang chia 1_000_000, ta lưu dạng micros (nhân lại)
+        const revenueInMicros = Math.round(data.revenue * 1_000_000);
+        const ecpmInMicros = Math.round(ecpm * 1_000_000);
+
         docs.push({
             networkCode: String(networkCode),
             date: isoDate,
             impressions: data.impressions,
             clicks: data.clicks,
-            revenue: data.revenue,
-            ecpm: ecpm,
+            revenue: revenueInMicros,
+            ecpm: ecpmInMicros,
             options: JSON.stringify(data.rows),
             status: 'updating'
         });
@@ -346,35 +509,12 @@ async function upsertAdsReport(databases, doc) {
     }
 }
 
+/**
+ * Wrapper: gọi GAM API v1 để lấy report data.
+ * Thay thế hàm cũ vốn gọi Python API bên ngoài.
+ */
 async function fetchReportForNetworkCode(networkCode, startStr, endStr) {
-    //HISTORICAL
-    const url = new URL(BASE_REPORT_URL);
-    url.searchParams.set('preset', 'adx');
-    url.searchParams.set('dimensions', 'DATE_PT,SITE_NAME,AD_UNIT_ID,AD_UNIT_NAME');
-    url.searchParams.set('columns', 'AD_EXCHANGE_LINE_ITEM_LEVEL_IMPRESSIONS,AD_EXCHANGE_LINE_ITEM_LEVEL_CLICKS,AD_EXCHANGE_LINE_ITEM_LEVEL_REVENUE');
-    url.searchParams.set('time_zone_type', 'PACIFIC');
-    url.searchParams.set('ad_unit_view', 'FLAT');
-    url.searchParams.set('start_date', startStr);
-    url.searchParams.set('end_date', endStr);
-    url.searchParams.set('network_code', String(networkCode));
-
-    const res = await axios.get(url.toString(), {
-        headers: { Accept: 'application/json' },
-        timeout: 300000, // 30 giây
-    });
-
-
-    if (res.data?.row_count <= 0) {
-        return [];
-        // throw new Error(`Report API ${networkCode} failed: HTTP ${res.status}`);
-    }
-
-    const data = await res.data;
-    console.log("res: ", res.data?.row_count)
-    if (Array.isArray(data)) return data;
-    if (data && Array.isArray(data.data)) return data.data;
-    if (data && Array.isArray(data.rows)) return data.rows;
-    return [];
+    return fetchReportFromGAMApiV1(networkCode, startStr, endStr);
 }
 
 async function runOnce(days) {
