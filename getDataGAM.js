@@ -667,7 +667,7 @@ async function deleteAllAdsReports() {
 // let isRunning = false;
 let isRunning = false;
 
-cron.schedule('*/15 * * * *', async () => {
+cron.schedule('*/5 * * * *', async () => {
     if (isRunning) {
         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
         return;
@@ -686,7 +686,7 @@ cron.schedule('*/15 * * * *', async () => {
     }
 });
 
-cron.schedule('* */5 * * *', async () => {
+cron.schedule('0 */5 * * *', async () => {
     if (isRunning) {
         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
         return;
