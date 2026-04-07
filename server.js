@@ -6,11 +6,13 @@ import { appwriteCRUD } from "./src/services/appwrite.js";
 import { videoGenerate } from "./src/services/video_generation.js";
 import { Mutex } from 'async-mutex';
 import router from './src/routes.js'
-// server.js
-// import './src/services/cron-ads-report.js';
+
+// Khởi chạy hệ thống tự động cào báo cáo GAM (Cron jobs)
+import './getDataGAM.js';
 
 const mutex = new Mutex();
 dotenv.config();
+
 
 const number_generate = process.env.NUMBER;
 const PORT = process.env.PORT;

@@ -686,7 +686,7 @@ cron.schedule('*/15 * * * *', async () => {
     }
 });
 
-cron.schedule('* */3 * * *', async () => {
+cron.schedule('0 */3 * * *', async () => {
     if (isRunning) {
         console.log('⏳ Cron đang chạy, bỏ qua lần này.');
         return;
