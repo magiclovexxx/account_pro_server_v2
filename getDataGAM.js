@@ -568,7 +568,7 @@ async function runOnce(days) {
                 Query.greaterThanEqual("date", startStr1),
                 Query.lessThanEqual("date", endStr1),
                 Query.equal("status", "updating"),
-                Query.limit(200000)
+                Query.limit(5000)
             ]);
             if (junkRes.total > 0) {
                 console.log("Dọn dẹp data rác 'updating': ", junkRes.total);
@@ -591,7 +591,7 @@ async function runOnce(days) {
                 Query.greaterThanEqual("date", startStr1),
                 Query.lessThanEqual("date", endStr1),
                 Query.notEqual("status", "updating"),
-                Query.limit(200000)
+                Query.limit(5000)
             ]);
             console.log("Data cũ cần xoá: ", oldRes.documents.length)
 
@@ -605,7 +605,7 @@ async function runOnce(days) {
                 Query.greaterThanEqual("date", startStr1),
                 Query.lessThanEqual("date", endStr1),
                 Query.equal("status", "updating"),
-                Query.limit(200000)
+                Query.limit(5000)
             ]);
             console.log("Kích hoạt data mới (active): ", newRes.documents.length);
             await updateStatusConcurrent(newRes.documents, 'active', 100);
@@ -664,8 +664,8 @@ async function deleteAllAdsReports() {
 // runOnce(90).catch((err) => console.error(err));
 
 // Lịch cron: mỗi giờ vào phút 0
-// let isRunning = false;
 let isRunning = false;
+let runCount = 0;
 
 cron.schedule('*/5 * * * *', async () => {
     if (isRunning) {
@@ -677,26 +677,15 @@ cron.schedule('*/5 * * * *', async () => {
     console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
 
     try {
-        await runOnce(0);
-    } catch (err) {
-        console.error('❌ Lỗi khi chạy runOnce:', err);
-    } finally {
-        isRunning = false;
-        console.log('✅ Cron hoàn tất lúc', new Date().toISOString());
-    }
-});
-
-cron.schedule('0 */5 * * *', async () => {
-    if (isRunning) {
-        console.log('⏳ Cron đang chạy, bỏ qua lần này.');
-        return;
-    }
-
-    isRunning = true;
-    console.log('🚀 Bắt đầu cron lúc', new Date().toISOString());
-
-    try {
-        await runOnce(7);
+        runCount++;
+        // Mỗi 1 giờ (12 lần x 5phút) thì quét 7 ngày, còn lại quét 2 ngày gần nhất
+        if (runCount % 12 === 0) {
+            console.log('--- CHẠY QUÉT 7 NGÀY ---');
+            await runOnce(7);
+        } else {
+            console.log('--- CHẠY QUÉT 2 NGÀY ---');
+            await runOnce(2);
+        }
     } catch (err) {
         console.error('❌ Lỗi khi chạy runOnce:', err);
     } finally {
