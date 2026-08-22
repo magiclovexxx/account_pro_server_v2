@@ -2,15 +2,19 @@
 import { Client, Databases, ID, Query } from "node-appwrite";
 import dotenv from "dotenv";
 dotenv.config();
-const server = process.env.SERVER;
-// ✅ Khởi tạo client Appwrite
-const client = new Client()
-    .setEndpoint(process.env.APPWRITE_ENDPOINT)
-    .setProject(process.env.APPWRITE_PROJECT_ID)
-    .setKey(process.env.APPWRITE_API_KEY);
 
-const databases = new Databases(client);
+const server = process.env.SERVER;
+let client = null;
+let databases = null;
 const dbId = process.env.APPWRITE_DATABASE_ID;
+
+if (process.env.APPWRITE_ENDPOINT && process.env.APPWRITE_PROJECT_ID && process.env.APPWRITE_API_KEY) {
+    client = new Client()
+        .setEndpoint(process.env.APPWRITE_ENDPOINT)
+        .setProject(process.env.APPWRITE_PROJECT_ID)
+        .setKey(process.env.APPWRITE_API_KEY);
+    databases = new Databases(client);
+}
 
 function cleanDocument(doc) {
     const clean = {};
@@ -26,11 +30,8 @@ function cleanDocument(doc) {
  * 🔹 CRUD tổng quát cho mọi collection
  */
 export const appwriteCRUD = {
-    /**
-     * Lấy tất cả document trong collection
-     * @param {string} collectionId
-     */
     async list(collectionId) {
+        if (!databases) return [];
         try {
             const res = await databases.listDocuments(dbId, collectionId);
             return res.documents;
@@ -40,12 +41,8 @@ export const appwriteCRUD = {
         }
     },
 
-    /**
-     * Lấy 1 document theo ID
-     * @param {string} collectionId
-     * @param {string} docId
-     */
     async get(collectionId, docId) {
+        if (!databases) return null;
         try {
             return await databases.getDocument(dbId, collectionId, docId);
         } catch (err) {
@@ -54,12 +51,8 @@ export const appwriteCRUD = {
         }
     },
 
-    /**
-     * Tạo mới document
-     * @param {string} collectionId
-     * @param {object} data
-     */
     async create(collectionId, data) {
+        if (!databases) return null;
         try {
             return await databases.createDocument(
                 dbId,
@@ -73,13 +66,8 @@ export const appwriteCRUD = {
         }
     },
 
-    /**
-     * Cập nhật document
-     * @param {string} collectionId
-     * @param {string} docId
-     * @param {object} data
-     */
     async update(collectionId, docId, data) {
+        if (!databases) return null;
         try {
             const cleanData = cleanDocument(data);
             return await databases.updateDocument(
@@ -94,12 +82,8 @@ export const appwriteCRUD = {
         }
     },
 
-    /**
-     * Xóa document
-     * @param {string} collectionId
-     * @param {string} docId
-     */
     async remove(collectionId, docId) {
+        if (!databases) return { success: false };
         try {
             await databases.deleteDocument(dbId, collectionId, docId);
             return { success: true };
@@ -109,14 +93,9 @@ export const appwriteCRUD = {
         }
     },
 
-    /**
-     * Lấy danh sách video_generations (status queued/failed),
-     * update thành server_1 + processing,
-     * rồi lấy tool_account tương ứng của userId.
-     */
     async getOldestVideoWithTool(number_video = 1, serverName = server) {
+        if (!databases) return [];
         try {
-            // 1) Lấy danh sách projectId đã có video completed gần đây (dùng để ưu tiên)
             const completedRes = await databases.listDocuments(
                 dbId,
                 "video_generations",
@@ -132,10 +111,6 @@ export const appwriteCRUD = {
                 ),
             ];
 
-            // 2) Lấy pool candidate videos:
-            // - status queued OR failed
-            // - OR (status processing AND server = serverName)
-            // - đồng thời chỉ lấy video mà server là null/empty/hoặc server == serverName (loại server khác)
             const candidateLimit = Math.max(number_video * 5, number_video);
             const candidatesRes = await databases.listDocuments(
                 dbId,
@@ -149,7 +124,6 @@ export const appwriteCRUD = {
                             Query.equal("server", serverName),
                         ]),
                     ]),
-                    // server null/empty hoặc server == serverName
                     Query.or([
                         Query.isNull("server"),
                         Query.equal("server", ""),
@@ -166,21 +140,18 @@ export const appwriteCRUD = {
                 return [];
             }
 
-            // 3) Ưu tiên theo projectId (những video có projectId thuộc completedProjectIds)
             const prioritized = candidates.filter((v) =>
                 completedProjectIds.includes(v.projectId)
             );
             const selected = [];
             const usedIds = new Set();
 
-            // Lấy trước những video ưu tiên
             for (const v of prioritized) {
                 if (selected.length >= number_video) break;
                 selected.push(v);
                 usedIds.add(v.$id);
             }
 
-            // Nếu chưa đủ, bổ sung từ pool candidates theo thứ tự creationDate
             if (selected.length < number_video) {
                 for (const v of candidates) {
                     if (selected.length >= number_video) break;
@@ -195,11 +166,9 @@ export const appwriteCRUD = {
                 return [];
             }
 
-            // 4) Với từng selected video: update để lock (server, status) => lấy tool_account => merge
             const results = [];
             for (const video of selected) {
                 try {
-                    // Update để lock. Nếu video đã bị gán server khác, update có thể thành công hoặc lỗi tùy data.
                     const updatedVideo = await databases.updateDocument(
                         dbId,
                         "video_generations",
@@ -210,7 +179,6 @@ export const appwriteCRUD = {
                         }
                     );
 
-                    // Lấy tool_account tương ứng
                     let toolDoc = null;
                     try {
                         const toolRes = await databases.listDocuments(
@@ -228,14 +196,11 @@ export const appwriteCRUD = {
                             `Lỗi khi lấy tool_account cho user ${updatedVideo.userId}:`,
                             errTool.message
                         );
-                        // tiếp tục, toolAccount = null
                     }
 
-                    // Merge: giữ toàn bộ fields của updatedVideo, thêm key toolAccount
                     const merged = { ...updatedVideo, toolAccount: toolDoc || null };
                     results.push(merged);
                 } catch (err) {
-                    // Nếu update fail (ví dụ bị lock bởi worker khác), log và bỏ video này
                     console.error(`Lỗi update/lock video ${video.$id}:`, err.message);
                     continue;
                 }
@@ -247,9 +212,10 @@ export const appwriteCRUD = {
             return [];
         }
     },
+
     async getToolAccount(tool) {
+        if (!databases) return null;
         try {
-            console.log("get tool: ", tool)
             const toolRes = await databases.listDocuments(dbId, "tool_accounts", [
                 Query.equal("userId", "68d3a7c8003cc52a6274"),
                 Query.equal("tool", tool),
@@ -263,7 +229,6 @@ export const appwriteCRUD = {
             return toolDoc;
         } catch (errTool) {
             console.warn(`Lỗi khi lấy tool_account cho user `, errTool);
-            // tiếp tục, toolAccount = null
         }
     },
 };
