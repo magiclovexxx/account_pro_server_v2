@@ -45,7 +45,7 @@ const formatOrder = (o) => ({
  */
 router.get('/', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin';
+        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
         const where = isAdmin ? {} : { userId: req.user.id };
         const orders = await prisma.order.findMany({
             where,

@@ -29,7 +29,7 @@ const formatCoupon = (c) => ({
  */
 router.get('/', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin';
+        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
         const where = isAdmin ? {} : { status: true };
         const coupons = await prisma.coupon.findMany({
             where,

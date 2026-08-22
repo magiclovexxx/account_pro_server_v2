@@ -2,77 +2,75 @@ import { Client } from 'ssh2';
 
 const conn = new Client();
 
-const testCommands = `
-echo "=========================================="
-echo "🧪 1. STOPPING REMAINING OPENRUNTIMES..."
-echo "=========================================="
-docker stop e110c94b3a4f || true
+const testFullSystem = `
+cd /home/account_pro_server_v2
+pm2 delete account_pro_server || true
+pm2 start server.js --name account_pro_server
+pm2 save
+sleep 3
 
 echo "=========================================="
-echo "📊 2. PM2 & POSTGRESQL STATUS"
+echo "📊 PM2 STATUS & HEALTH CHECK"
 echo "=========================================="
 pm2 status account_pro_server
-systemctl status postgresql --no-pager | grep "Active:"
 
 echo "=========================================="
-echo "🔑 3. TESTING AUTHENTICATION (POST /api/auth/login)"
+echo "🔑 1. TEST POST /api/auth/login"
 echo "=========================================="
 LOGIN_RESP=\$(curl -s -X POST http://127.0.0.1:6789/api/auth/login \\
   -H "Content-Type: application/json" \\
   -d '{"email":"magic.loveptit@gmail.com","password":"12345678"}')
 
-echo "Login Response: \$LOGIN_RESP"
+echo "\$LOGIN_RESP"
 
-TOKEN=\$(echo "\$LOGIN_RESP" | grep -o '"token":"[^"]*' | grep -o '[^"]*\$')
+TOKEN=\$(echo "\$LOGIN_RESP" | grep -o '"token":"[^"]*' | cut -d'"' -f4)
 
-if [ -z "\$TOKEN" ]; then
-  echo "❌ Token generation failed!"
-else
-  echo "✅ JWT Token obtained successfully!"
+if [ -n "\$TOKEN" ]; then
+  echo "✅ JWT Token obtained: \${TOKEN:0:30}..."
 
   echo "=========================================="
-  echo "👤 4. TESTING GET /api/auth/me WITH BEARER TOKEN"
+  echo "👤 2. TEST GET /api/auth/me (User Profile via Bearer Token)"
   echo "=========================================="
   curl -s -H "Authorization: Bearer \$TOKEN" http://127.0.0.1:6789/api/auth/me
   echo ""
 
   echo "=========================================="
-  echo "🛠️ 5. TESTING GET /api/orders/my-tools"
+  echo "🛠️ 3. TEST GET /api/orders/my-tools"
   echo "=========================================="
   curl -s -H "Authorization: Bearer \$TOKEN" http://127.0.0.1:6789/api/orders/my-tools
   echo ""
 
   echo "=========================================="
-  echo "📊 6. TESTING GET /api/gam/network-codes"
+  echo "📊 4. TEST GET /api/gam/network-codes"
   echo "=========================================="
-  curl -s -H "Authorization: Bearer \$TOKEN" http://127.0.0.1:6789/api/gam/network-codes
-  echo ""
+  curl -s -H "Authorization: Bearer \$TOKEN" http://127.0.0.1:6789/api/gam/network-codes | head -c 200
+  echo "..."
 
   echo "=========================================="
-  echo "📈 7. TESTING GET /api/gam/reports (PostgreSQL live query)"
+  echo "📈 5. TEST GET /api/gam/reports (PostgreSQL live query)"
   echo "=========================================="
   curl -s -H "Authorization: Bearer \$TOKEN" "http://127.0.0.1:6789/api/gam/reports?limit=2"
   echo ""
+
+  echo "=========================================="
+  echo "🌐 6. TEST HTTPS DOMAIN ACCOUNT.PRO.VN"
+  echo "=========================================="
+  curl -s -H "Authorization: Bearer \$TOKEN" https://account.pro.vn/api/auth/me
+  echo ""
+
+  echo "=========================================="
+  echo "🌐 7. TEST ADS.KINGOFTOOL.NET NGINX"
+  echo "=========================================="
+  curl -s -H "Host: ads.kingoftool.net" -H "Authorization: Bearer \$TOKEN" http://127.0.0.1/api/auth/me
+  echo ""
+else
+  echo "❌ Login failed!"
 fi
-
-echo "=========================================="
-echo "🌐 8. TESTING NGINX ACCESS VIA DOMAIN ACCOUNT.PRO.VN"
-echo "=========================================="
-curl -s -I https://account.pro.vn | head -n 5
-
-echo "=========================================="
-echo "🌐 9. TESTING NGINX ACCESS VIA DOMAIN ADS.KINGOFTOOL.NET"
-echo "=========================================="
-curl -s -I -H "Host: ads.kingoftool.net" http://127.0.0.1 | head -n 5
-
-echo "=========================================="
-echo "🎉 ALL POST-DEPLOYMENT CHECKS COMPLETE!"
-echo "=========================================="
 `;
 
 conn.on('ready', () => {
-    console.log('SSH Client :: running live post-deployment checks');
-    conn.exec(testCommands, (err, stream) => {
+    console.log('SSH Client :: testing full system');
+    conn.exec(testFullSystem, (err, stream) => {
         if (err) throw err;
         stream.on('close', (code, signal) => {
             console.log(`Command closed with code: ${code}`);
