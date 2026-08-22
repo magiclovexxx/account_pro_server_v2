@@ -140,16 +140,23 @@ router.get('/reports', authChecker, async (req, res) => {
         const where = {};
 
         if (networkCode) {
-            where.networkCode = String(networkCode);
+            const netStr = String(networkCode).trim();
+            if (netStr.includes(',')) {
+                where.networkCode = { in: netStr.split(',').map(s => s.trim()).filter(Boolean) };
+            } else if (netStr && netStr !== 'all') {
+                where.networkCode = netStr;
+            }
         }
 
         if (startDate || endDate) {
             where.date = {};
             if (startDate) {
-                where.date.gte = new Date(startDate);
+                const s = String(startDate).split('T')[0];
+                where.date.gte = new Date(`${s}T00:00:00.000Z`);
             }
             if (endDate) {
-                where.date.lte = new Date(endDate);
+                const e = String(endDate).split('T')[0];
+                where.date.lte = new Date(`${e}T23:59:59.999Z`);
             }
         }
 
@@ -160,7 +167,7 @@ router.get('/reports', authChecker, async (req, res) => {
         const reports = await prisma.adsReport.findMany({
             where,
             orderBy: { date: 'desc' },
-            take: limit ? Math.min(Number(limit), 5000) : 5000
+            take: limit ? Math.min(Number(limit), 10000) : 10000
         });
 
         return res.json(reports.map(formatAdsReport));
