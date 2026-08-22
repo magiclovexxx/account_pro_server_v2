@@ -1,5 +1,6 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
+import argon2 from 'argon2';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 const uuidv4 = () => crypto.randomBytes(10).toString('hex');
@@ -9,6 +10,25 @@ import authChecker from '../api/middleware.js';
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'account_pro_jwt_secret_key_2026_981273918237';
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+/**
+ * Hỗ trợ xác thực cả mật khẩu mã hóa bằng Argon2 (từ Appwrite cũ) và Bcrypt (mới)
+ */
+async function verifyPassword(plainPassword, hashedPassword) {
+    if (!hashedPassword || !plainPassword) return false;
+    if (hashedPassword.startsWith('$argon2')) {
+        try {
+            return await argon2.verify(hashedPassword, plainPassword);
+        } catch (e) {
+            return false;
+        }
+    }
+    try {
+        return await bcrypt.compare(plainPassword, hashedPassword);
+    } catch (e) {
+        return false;
+    }
+}
 
 const generateToken = (user) => {
     return jwt.sign(
@@ -104,7 +124,7 @@ router.post('/login', async (req, res) => {
         }
 
         if (user.password) {
-            const isMatch = await bcrypt.compare(password, user.password);
+            const isMatch = await verifyPassword(password, user.password);
             if (!isMatch) {
                 return res.status(401).json({ message: 'Email hoặc mật khẩu không chính xác.' });
             }
@@ -212,7 +232,7 @@ router.post('/update-password', authChecker, async (req, res) => {
         }
 
         if (req.user.password && oldPassword) {
-            const isMatch = await bcrypt.compare(oldPassword, req.user.password);
+            const isMatch = await verifyPassword(oldPassword, req.user.password);
             if (!isMatch) {
                 return res.status(400).json({ message: 'Mật khẩu cũ không chính xác.' });
             }
