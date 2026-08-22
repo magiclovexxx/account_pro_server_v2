@@ -61,22 +61,25 @@ async function fetchReportFromGAMApiV1(networkCode, startStr, endStr) {
         'AD_EXCHANGE_IMPRESSIONS',
         'AD_EXCHANGE_CLICKS',
         'AD_EXCHANGE_REVENUE',
-        'AD_EXCHANGE_ESTIMATED_ECPM',
+        'AD_EXCHANGE_AVERAGE_ECPM',
+        'AD_REQUESTS',
+        'AD_EXCHANGE_MATCH_RATE',
+        'AD_EXCHANGE_CTR',
     ];
 
     const reportBody = {
-        report: {
-            reportDefinition: {
-                dimensions: dimensions,
-                metrics: metrics,
-                dateRange: {
-                    fixed: {
-                        startDate: parseDateToObj(startStr),
-                        endDate: parseDateToObj(endStr),
-                    },
+        displayName: `Cron Report ${networkCode} ${startStr}~${endStr} ${Date.now()}`,
+        reportDefinition: {
+            dimensions,
+            metrics,
+            dateRange: {
+                fixed: {
+                    startDate: parseDateToObj(startStr),
+                    endDate: parseDateToObj(endStr),
                 },
-                timeZoneType: 'TIME_ZONE_TYPE_UNSPECIFIED',
             },
+            reportType: 'HISTORICAL',
+            currencyCode: 'USD',
         },
     };
 
