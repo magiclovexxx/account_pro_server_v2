@@ -29,7 +29,8 @@ const formatTool = (t) => ({
  */
 router.get('/', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
         const where = isAdmin ? {} : { status: true };
         const tools = await prisma.tool.findMany({
             where,

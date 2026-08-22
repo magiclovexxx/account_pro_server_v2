@@ -41,7 +41,8 @@ export default async (req, res, next) => {
  * 👑 Admin Checker Middleware
  */
 export const adminChecker = (req, res, next) => {
-    if (!req.user || (req.user.role !== 'admin' && req.user.role !== 'superadmin')) {
+    const role = (req.user?.role || '').toLowerCase();
+    if (role !== 'admin' && role !== 'superadmin') {
         return res.status(403).json({ message: 'Truy cập bị từ chối: Yêu cầu quyền Quản trị viên.' });
     }
     next();

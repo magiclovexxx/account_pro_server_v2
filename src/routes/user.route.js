@@ -89,7 +89,9 @@ router.post('/', authChecker, adminChecker, async (req, res) => {
 router.get('/:id', authChecker, async (req, res) => {
     try {
         const { id } = req.params;
-        if (req.user.role !== 'admin' && req.user.id !== id) {
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
+        if (!isAdmin && req.user.id !== id) {
             return res.status(403).json({ message: 'Không có quyền truy cập.' });
         }
 
@@ -112,7 +114,8 @@ router.put('/:id', authChecker, async (req, res) => {
     try {
         const { id } = req.params;
         const isSelf = req.user.id === id;
-        const isAdmin = req.user.role === 'admin';
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
 
         if (!isSelf && !isAdmin) {
             return res.status(403).json({ message: 'Không có quyền sửa đổi thông tin.' });

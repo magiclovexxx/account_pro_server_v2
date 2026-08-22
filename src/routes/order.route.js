@@ -45,7 +45,8 @@ const formatOrder = (o) => ({
  */
 router.get('/', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
         const where = isAdmin ? {} : { userId: req.user.id };
         const orders = await prisma.order.findMany({
             where,
@@ -87,7 +88,9 @@ router.get('/my-tools', authChecker, async (req, res) => {
 router.post('/', authChecker, async (req, res) => {
     try {
         const data = req.body;
-        const targetUserId = (req.user.role === 'admin' && data.userId) ? data.userId : req.user.id;
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
+        const targetUserId = (isAdmin && data.userId) ? data.userId : req.user.id;
 
         const newOrder = await prisma.order.create({
             data: {
@@ -128,7 +131,8 @@ router.put('/:id', authChecker, async (req, res) => {
         }
 
         const isOwner = existing.userId === req.user.id;
-        const isAdmin = req.user.role === 'admin';
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
         if (!isOwner && !isAdmin) {
             return res.status(403).json({ message: 'Không có quyền sửa đơn hàng này.' });
         }

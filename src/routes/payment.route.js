@@ -26,7 +26,8 @@ const formatPayment = (p) => ({
  */
 router.get('/', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
+        const role = (req.user?.role || '').toLowerCase();
+        const isAdmin = role === 'admin' || role === 'superadmin';
         const where = isAdmin ? {} : { userId: req.user.id };
         const payments = await prisma.payment.findMany({
             where,
