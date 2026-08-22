@@ -6,8 +6,8 @@ import path from "path";
 import fs from "fs";
 
 import https from "https";
-import { appwriteCRUD } from "./appwrite.js";
 import dotenv from "dotenv";
+import prisma from "../prisma.js";
 dotenv.config();
 const headless = process.env.HEADLESS === "true";
 const download = process.env.DOWNLOAD === "true";
@@ -17,6 +17,23 @@ import { fileURLToPath } from 'url';
 // Tạo lại __filename và __dirname tương tự CommonJS
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+async function getToolAccount(toolType) {
+    try {
+        const tool = await prisma.tool.findFirst({
+            where: { type: toolType, status: true }
+        });
+        if (!tool) return null;
+        return {
+            value: tool.cookie || '[]',
+            note: tool.desc || tool.name,
+            ...tool
+        };
+    } catch (e) {
+        console.error("Error fetching tool account from Prisma:", e.message);
+        return null;
+    }
+}
 
 function normalizeCookies(cookies) {
     return cookies.map((c) => {
@@ -386,7 +403,7 @@ export const videoGenerate = {
     async nanoBanana(data) {
         try {
             console.log("🟡 Nhận yêu cầu generate image:", data);
-            const toolAccount = await appwriteCRUD.getToolAccount("aistudio");
+            const toolAccount = await getToolAccount("aistudio");
 
             const maxRetry = 3;
             let retry = 0;
@@ -594,7 +611,7 @@ export const videoGenerate = {
             retryGenerate:
             while (retry < maxRetry) {
                 console.log(`\n🚀 Bắt đầu lần thử ${retry + 1}/${maxRetry}`);
-                const toolAccount = await appwriteCRUD.getToolAccount("veo3");
+                const toolAccount = await getToolAccount("veo3");
                 if(!toolAccount){
                     console.log("Không có tool veo3")
                      return { success: false, message: "Có lỗi xảy ra, vui lòng liên hệ admin" };

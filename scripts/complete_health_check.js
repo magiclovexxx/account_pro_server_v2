@@ -33,11 +33,11 @@ async function runCompleteSystemCheck() {
     // 2. USER PROFILE & USERS LIST CHECK
     console.log("\n[2/7] Testing User Profile & Users API...");
     try {
-        const profileRes = await axios.get(`${BASE_URL}/users/profile`, { headers });
-        console.log(`✅ Profile fetch SUCCESS! Name: ${profileRes.data.name || 'N/A'}, Balance: ${profileRes.data.balance ?? 0}`);
+        const profileRes = await axios.get(`${BASE_URL}/auth/me`, { headers });
+        console.log(`✅ Profile fetch (/api/auth/me) SUCCESS! Name: ${profileRes.data.user.name || 'N/A'}, Credits: ${profileRes.data.user.credits ?? 0}`);
         
         const usersListRes = await axios.get(`${BASE_URL}/users`, { headers });
-        console.log(`✅ Users list fetch SUCCESS! Total users in DB: ${usersListRes.data.length}`);
+        console.log(`✅ Users list fetch (/api/users) SUCCESS! Total users in DB: ${usersListRes.data.length}`);
     } catch (e) {
         console.error("❌ Users API failed:", e.response?.data || e.message);
     }
