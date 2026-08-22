@@ -2,12 +2,12 @@ import { Client } from 'ssh2';
 
 const conn = new Client();
 
-const migrateScript = `
+const syncAllUsersScript = `
 echo "--- 1. Starting MariaDB container ---"
 docker start appwrite-mariadb
 sleep 3
 
-cat << 'EOF' > /home/account_pro_server_v2/sync_appwrite_passwords.js
+cat << 'EOF' > /home/account_pro_server_v2/sync_all_users.js
 import crypto from 'crypto';
 import { PrismaClient } from '@prisma/client';
 import { execSync } from 'child_process';
@@ -38,8 +38,14 @@ function decryptPassword(encryptedJsonStr) {
 }
 
 async function run() {
-    console.log("1. Querying MariaDB tables via docker exec...");
-    const tables = ['_project_console_users', '_project_68f86f87000e3ee9e5bc_users', '_4_users', '_7_users'];
+    console.log("1. Finding all user tables in MariaDB...");
+    const rawTables = execSync(
+        \`docker exec appwrite-mariadb mysql -u user -ppassword appwrite -N -e "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA='appwrite' AND TABLE_NAME REGEXP '^_[0-9]+_users$';"\`,
+        { encoding: 'utf-8' }
+    );
+    const tables = rawTables.split('\\n').map(t => t.trim()).filter(Boolean);
+    console.log("Tables found:", tables);
+
     const userMap = new Map(); // email -> argon2Hash
 
     for (const tbl of tables) {
@@ -62,7 +68,7 @@ async function run() {
                 }
             }
         } catch (e) {
-            console.log(\`Table \${tbl} skip: \${e.message}\`);
+            console.log(\`Table \${tbl} error: \${e.message}\`);
         }
     }
 
@@ -77,6 +83,8 @@ async function run() {
             });
             updatedCount++;
             console.log(\`✅ Updated user \${email} (\${user.id}) with original Appwrite hash\`);
+        } else {
+            console.log(\`ℹ️ User \${email} in MariaDB not present in PostgreSQL users list\`);
         }
     }
 
@@ -91,9 +99,11 @@ run().catch(e => {
 EOF
 
 cd /home/account_pro_server_v2
+git stash
 git pull origin main
-node sync_appwrite_passwords.js
-rm sync_appwrite_passwords.js
+npm install
+node sync_all_users.js
+rm sync_all_users.js
 pm2 restart account_pro_server
 
 echo "--- 3. Stopping MariaDB again ---"
@@ -101,8 +111,8 @@ docker stop appwrite-mariadb
 `;
 
 conn.on('ready', () => {
-    console.log('SSH Client :: syncing real Appwrite password hashes to PostgreSQL');
-    conn.exec(migrateScript, (err, stream) => {
+    console.log('SSH Client :: syncing ALL Appwrite user passwords from all tables');
+    conn.exec(syncAllUsersScript, (err, stream) => {
         if (err) throw err;
         let output = '';
         stream.on('close', (code, signal) => {

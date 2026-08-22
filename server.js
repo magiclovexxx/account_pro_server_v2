@@ -12,7 +12,12 @@ const PORT = process.env.PORT || 6789;
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Range', 'X-Requested-With', 'Accept', 'Origin']
+}));
 
 // Cho phép nhận body lớn
 app.use(express.json({ limit: '50mb' }));
