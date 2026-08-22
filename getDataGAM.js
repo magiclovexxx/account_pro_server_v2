@@ -370,6 +370,10 @@ export async function runOnce(days = 3) {
 
                 if (!rows || !rows.length) {
                     console.log(`No rows for networkCode=${networkCode}`);
+                    await prisma.networkCode.update({
+                        where: { id: doc.id },
+                        data: { getDataTime: new Date() }
+                    });
                     continue;
                 }
 
@@ -388,6 +392,12 @@ export async function runOnce(days = 3) {
                 console.log(`✅ Hoàn tất networkCode=${networkCode} (${rows.length} row(s) -> ${aggregatedDocs.length} ngày)`);
             } catch (e) {
                 console.error(`[CRON] Error processing ${networkCode}:`, e.message);
+                try {
+                    await prisma.networkCode.update({
+                        where: { id: doc.id },
+                        data: { getDataTime: new Date() }
+                    });
+                } catch (ignore) {}
             }
         }
 

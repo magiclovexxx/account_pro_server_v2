@@ -49,8 +49,9 @@ const formatAdsReport = (ar) => ({
  */
 router.get('/network-codes', authChecker, async (req, res) => {
     try {
-        const isAdmin = req.user.role === 'admin' || req.user.role === 'superadmin';
-        const where = isAdmin ? {} : { userId: req.user.id };
+        const role = (req.user.role || '').toLowerCase();
+        const isPrivileged = role === 'admin' || role === 'superadmin' || role === 'ads';
+        const where = isPrivileged ? {} : { userId: req.user.id };
         const codes = await prisma.networkCode.findMany({
             where,
             orderBy: { createdAt: 'desc' }
