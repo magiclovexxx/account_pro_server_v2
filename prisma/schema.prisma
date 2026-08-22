@@ -1,0 +1,248 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model User {
+  id                  String           @id // maps to Appwrite $id or UUID
+  email               String           @unique
+  password            String?          // bcrypt hash
+  name                String?
+  phone               String?
+  plan                String?          @default("free")
+  role                String?          @default("user")
+  settings            String?          // JSON string
+  permission          String?
+  usage               String?          // JSON string
+  credits             Int?             @default(10)
+  subscriptionStatus  String?          @default("trial")
+  subscriptionEndDate DateTime?
+  expireDate          DateTime?
+  devices             String[]         @default([])
+  max_device          Int?             @default(1)
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  orders              Order[]
+  tradingConfigs      TradingConfig[]
+  networkCodes        NetworkCode[]
+  coupons             Coupon[]
+  tools               Tool[]
+  payments            Payment[]
+  socialAccounts      SocialAccount[]
+  videoGenerations    VideoGeneration[]
+
+  @@map("users")
+}
+
+model Tool {
+  id               String    @id // maps to Appwrite $id
+  userId           String?
+  name             String?
+  url              String?
+  username         String?
+  password         String?
+  desc             String?
+  cookie           String?
+  price            Int?      @default(0)
+  type             String?
+  status           Boolean   @default(true)
+  expriration_date DateTime?
+  package          String[]  @default([])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  orders           Order[]
+
+  @@map("tools")
+}
+
+model Order {
+  id               String    @id // maps to Appwrite $id
+  userId           String?
+  toolId           String?
+  orderId          String?
+  price            Int?      @default(0)
+  type             String?
+  note             String?
+  method           String?
+  isPurchased      String?
+  expriration_date DateTime?
+  status           Boolean   @default(true)
+  max_device       Int?      @default(1)
+  devices          String[]  @default([])
+  paymentId        String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tool             Tool?     @relation(fields: [toolId], references: [id], onDelete: SetNull)
+
+  @@map("orders")
+}
+
+model Coupon {
+  id               String    @id // maps to Appwrite $id
+  userId           String?
+  title            String?
+  code             String    @unique
+  desc             String?
+  percent          Float?    @default(0)
+  percentOfUser    Float?    @default(0)
+  count            Int?      @default(0)
+  max_user         Int?      @default(0)
+  type             String?
+  reUsed           Boolean   @default(false)
+  status           Boolean   @default(true)
+  expriration_date DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("coupons")
+}
+
+model Payment {
+  id               String    @id // maps to Appwrite $id
+  userId           String?
+  toolId           String?
+  package          String?   // JSON string
+  deviceCount      Int?
+  originalPrice    Float?
+  amount           Float?    @default(0)
+  discount         Float?    @default(0)
+  couponCode       String?
+  method           String?
+  transaction      String?
+  orderId          String?
+  isPurchased      String?
+  sepayTransaction String?
+  contentPayment   String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user             User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("payments")
+}
+
+model NetworkCode {
+  id          String    @id // maps to Appwrite $id
+  userId      String?
+  networkCode String
+  title       String?
+  status      Boolean?  @default(true)
+  profit      Float?    @default(0)
+  getDataTime DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([networkCode])
+  @@map("network_codes")
+}
+
+model AdsReport {
+  id           String    @id // maps to Appwrite $id
+  networkCode  String?
+  date         DateTime?
+  ad_unit_name String?
+  site         String?
+  options      String?   // JSON string representing options array
+  status       String?
+  revenue      Float?    @default(0)
+  impressions  Float?    @default(0)
+  clicks       Float?    @default(0)
+  ecpm         Float?    @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([networkCode, date])
+  @@index([date])
+  @@map("ads_reports")
+}
+
+model TradingConfig {
+  id        String   @id // maps to Appwrite $id
+  userId    String?
+  title     String?
+  platform  String?
+  config    String?  // JSON string
+  status    Boolean  @default(false)
+  options   String?  // JSON string
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("trading_configs")
+}
+
+model Role {
+  id   String @id
+  role String @default("client")
+
+  @@map("roles")
+}
+
+model Plan {
+  id         String   @id
+  name       String?
+  options    String?
+  status     Boolean?
+  isOnline   Boolean  @default(false)
+  permission String?
+  price      Int?
+  days       Int?
+
+  @@map("plans")
+}
+
+model SocialAccount {
+  id              String   @id
+  userId          String?
+  platform        String?
+  name            String?
+  username        String?
+  status          Boolean  @default(true)
+  isLoggedIn      Boolean  @default(false)
+  access_token    String?
+  profile_picture String?
+  post_server     String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("social_accounts")
+}
+
+model VideoGeneration {
+  id             String    @id
+  userId         String?
+  projectId      String?
+  storyboardId   String?
+  sceneId        String?
+  sceneTitle     String?
+  imageUrl       String?
+  promptJson     String?
+  status         String?   @default("queued")
+  videoUrls      String[]  @default([])
+  errorMessage   String?
+  server         String?
+  creationDate   DateTime  @default(now())
+  completionDate DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  user           User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("video_generations")
+}

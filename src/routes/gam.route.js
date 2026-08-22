@@ -6,188 +6,238 @@ import url from 'url';
 import fs from 'fs';
 import path from 'path';
 import { promisify } from 'util';
+import crypto from 'crypto';
+const uuidv4 = () => crypto.randomBytes(10).toString('hex');
+import prisma from '../prisma.js';
+import authChecker from '../api/middleware.js';
 
 const router = express.Router();
 const writeFileAsync = promisify(fs.writeFile);
 
-// Hàm lấy refresh_token (giữ nguyên, cổng 6789)
-async function getRefreshToken({ clientId, clientSecret, redirectUri }) {
-  try {
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
-    const SCOPES = ['https://www.googleapis.com/auth/dfp'];
-    const authUrl = oauth2Client.generateAuthUrl({
-      access_type: 'offline',
-      scope: SCOPES,
-      prompt: 'consent'
-    });
+const formatNetworkCode = (nc) => ({
+    $id: nc.id,
+    $createdAt: nc.createdAt.toISOString(),
+    $updatedAt: nc.updatedAt.toISOString(),
+    userId: nc.userId,
+    networkCode: nc.networkCode,
+    title: nc.title || '',
+    status: nc.status ?? true,
+    profit: nc.profit ?? 0,
+    getDataTime: nc.getDataTime ? nc.getDataTime.toISOString() : undefined,
+});
 
-    return new Promise((resolve, reject) => {
-      const server = http.createServer(async (req, res) => {
-        const parsedUrl = url.parse(req.url, true);
-        if (parsedUrl.pathname === new URL(redirectUri).pathname) {
-          const code = parsedUrl.query.code;
-          if (code) {
-            try {
-              const { tokens } = await oauth2Client.getToken(code);
-              res.writeHead(200, { 'Content-Type': 'text/plain' });
-              res.end(`Refresh Token: ${tokens.refresh_token}`);
-              server.close();
-              resolve({
-                success: true,
-                refreshToken: tokens.refresh_token,
-                accessToken: tokens.access_token
-              });
-            } catch (error) {
-              res.writeHead(500, { 'Content-Type': 'text/plain' });
-              res.end('Error retrieving tokens');
-              server.close();
-              reject(new Error(`Error retrieving tokens: ${error.message}`));
+const formatAdsReport = (ar) => ({
+    $id: ar.id,
+    $createdAt: ar.createdAt.toISOString(),
+    $updatedAt: ar.updatedAt.toISOString(),
+    networkCode: ar.networkCode || '',
+    date: ar.date ? ar.date.toISOString() : '',
+    ad_unit_name: ar.ad_unit_name || '',
+    site: ar.site || '',
+    options: ar.options || '',
+    status: ar.status || '',
+    revenue: ar.revenue ?? 0,
+    impressions: ar.impressions ?? 0,
+    clicks: ar.clicks ?? 0,
+    ecpm: ar.ecpm ?? 0,
+});
+
+// ==================== NETWORK CODES API ====================
+
+/**
+ * GET /api/gam/network-codes
+ */
+router.get('/network-codes', authChecker, async (req, res) => {
+    try {
+        const isAdmin = req.user.role === 'admin';
+        const where = isAdmin ? {} : { userId: req.user.id };
+        const codes = await prisma.networkCode.findMany({
+            where,
+            orderBy: { createdAt: 'desc' }
+        });
+        return res.json(codes.map(formatNetworkCode));
+    } catch (err) {
+        console.error('List network codes error:', err);
+        return res.status(500).json({ message: 'Lỗi khi lấy danh sách Network Codes.' });
+    }
+});
+
+/**
+ * POST /api/gam/network-codes
+ */
+router.post('/network-codes', authChecker, async (req, res) => {
+    try {
+        const { networkCode, title, status, profit } = req.body;
+        if (!networkCode) {
+            return res.status(400).json({ message: 'Vui lòng cung cấp Network Code.' });
+        }
+
+        const newCode = await prisma.networkCode.create({
+            data: {
+                id: uuidv4().replace(/-/g, '').slice(0, 20),
+                userId: req.user.id,
+                networkCode: String(networkCode).trim(),
+                title: title || '',
+                status: status !== undefined ? Boolean(status) : true,
+                profit: profit !== undefined ? Number(profit) : 0,
             }
-          } else {
-            res.writeHead(400, { 'Content-Type': 'text/plain' });
-            res.end('No code provided');
-            server.close();
-            reject(new Error('No code provided'));
-          }
-        } else {
-          res.writeHead(404, { 'Content-Type': 'text/plain' });
-          res.end('Not found');
-        }
-      });
+        });
+        return res.status(201).json(formatNetworkCode(newCode));
+    } catch (err) {
+        console.error('Create network code error:', err);
+        return res.status(500).json({ message: 'Lỗi khi thêm Network Code.' });
+    }
+});
 
-      server.listen(6789, () => {
-        console.log('Server running on http://localhost:6789');
-        console.log('Open this URL in your browser to authenticate:', authUrl);
-      });
-    });
-  } catch (error) {
-    console.error('Error in getRefreshToken:', error.message);
-    return { success: false, error: error.message };
-  }
+/**
+ * PUT /api/gam/network-codes/:id
+ */
+router.put('/network-codes/:id', authChecker, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { networkCode, title, status, profit } = req.body;
+        const updateData = {};
+
+        if (networkCode !== undefined) updateData.networkCode = String(networkCode).trim();
+        if (title !== undefined) updateData.title = title;
+        if (status !== undefined) updateData.status = Boolean(status);
+        if (profit !== undefined) updateData.profit = Number(profit);
+
+        const updated = await prisma.networkCode.update({
+            where: { id },
+            data: updateData
+        });
+        return res.json(formatNetworkCode(updated));
+    } catch (err) {
+        console.error('Update network code error:', err);
+        return res.status(500).json({ message: 'Lỗi khi cập nhật Network Code.' });
+    }
+});
+
+/**
+ * DELETE /api/gam/network-codes/:id
+ */
+router.delete('/network-codes/:id', authChecker, async (req, res) => {
+    try {
+        const { id } = req.params;
+        await prisma.networkCode.delete({ where: { id } });
+        return res.json({ success: true, message: 'Xóa Network Code thành công.' });
+    } catch (err) {
+        console.error('Delete network code error:', err);
+        return res.status(500).json({ message: 'Lỗi khi xóa Network Code.' });
+    }
+});
+
+// ==================== ADS REPORTS API ====================
+
+/**
+ * GET /api/gam/reports
+ * Query ads reports with filtering by networkCode, date range, and site
+ */
+router.get('/reports', authChecker, async (req, res) => {
+    try {
+        const { networkCode, startDate, endDate, site, limit } = req.query;
+        const where = {};
+
+        if (networkCode) {
+            where.networkCode = String(networkCode);
+        }
+
+        if (startDate || endDate) {
+            where.date = {};
+            if (startDate) {
+                where.date.gte = new Date(startDate);
+            }
+            if (endDate) {
+                where.date.lte = new Date(endDate);
+            }
+        }
+
+        if (site) {
+            where.site = String(site);
+        }
+
+        const reports = await prisma.adsReport.findMany({
+            where,
+            orderBy: { date: 'desc' },
+            take: limit ? Math.min(Number(limit), 5000) : 5000
+        });
+
+        return res.json(reports.map(formatAdsReport));
+    } catch (err) {
+        console.error('List ads reports error:', err);
+        return res.status(500).json({ message: 'Lỗi khi truy vấn báo cáo quảng cáo.' });
+    }
+});
+
+// ==================== GAM GOOGLE OAUTH & SYNC HELPERS ====================
+
+async function getRefreshToken({ clientId, clientSecret, redirectUri }) {
+    try {
+        const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+        const SCOPES = ['https://www.googleapis.com/auth/dfp'];
+        const authUrl = oauth2Client.generateAuthUrl({
+            access_type: 'offline',
+            scope: SCOPES,
+            prompt: 'consent'
+        });
+
+        return new Promise((resolve, reject) => {
+            const server = http.createServer(async (req, res) => {
+                const parsedUrl = url.parse(req.url, true);
+                if (parsedUrl.pathname === new URL(redirectUri).pathname) {
+                    const code = parsedUrl.query.code;
+                    if (code) {
+                        try {
+                            const { tokens } = await oauth2Client.getToken(code);
+                            res.writeHead(200, { 'Content-Type': 'text/plain' });
+                            res.end(`Refresh Token: ${tokens.refresh_token}`);
+                            server.close();
+                            resolve({
+                                success: true,
+                                refreshToken: tokens.refresh_token,
+                                accessToken: tokens.access_token
+                            });
+                        } catch (error) {
+                            res.writeHead(500, { 'Content-Type': 'text/plain' });
+                            res.end('Error retrieving tokens');
+                            server.close();
+                            reject(new Error(`Error retrieving tokens: ${error.message}`));
+                        }
+                    } else {
+                        res.writeHead(400, { 'Content-Type': 'text/plain' });
+                        res.end('No code provided');
+                        server.close();
+                        reject(new Error('No code provided'));
+                    }
+                } else {
+                    res.writeHead(404, { 'Content-Type': 'text/plain' });
+                    res.end('Not found');
+                }
+            });
+
+            server.listen(6789, () => {
+                console.log('Server running on http://localhost:6789');
+                console.log('Open this URL in your browser to authenticate:', authUrl);
+            });
+        });
+    } catch (error) {
+        console.error('Error in getRefreshToken:', error.message);
+        return { success: false, error: error.message };
+    }
 }
 
-// Hàm lấy report từ Google Ad Manager sử dụng REST API
-async function getGAMReport({ networkCode, clientId, clientSecret, refreshToken, reportQuery, outputFile = 'gam_report.csv' }) {
-  try {
-    // Cấu hình OAuth2
-    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, 'http://localhost:6789/oauth2callback');
-    oauth2Client.setCredentials({ refresh_token: refreshToken });
-    const { token } = await oauth2Client.getAccessToken();
-    if (!token) throw new Error('Failed to obtain access token');
-
-    // Report query mặc định
-    const defaultReportQuery = {
-      dimensions: ['DATE', 'AD_UNIT_NAME'],
-      columns: ['TOTAL_LINE_ITEM_LEVEL_IMPRESSIONS', 'TOTAL_LINE_ITEM_LEVEL_CLICKS'],
-      dateRangeType: 'LAST_WEEK',
-      adUnitView: 'TOP_LEVEL'
-    };
-
-    const finalReportQuery = { ...defaultReportQuery, ...reportQuery };
-
-    // Tạo report job
-    console.log('Creating report job for networkCode:', networkCode);
-    const apiVersion = 'v202408'; // Cập nhật phiên bản API mới nhất (kiểm tra tài liệu)
-    const createReportResponse = await axios.post(
-      `https://admanager.googleapis.com/${apiVersion}/networks/${networkCode}/reports`,
-      { reportQuery: finalReportQuery },
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json'
+router.post('/auth/get-refresh-token', async (req, res) => {
+    try {
+        const { clientId, clientSecret, redirectUri } = req.body;
+        if (!clientId || !clientSecret || !redirectUri) {
+            return res.status(400).json({ error: 'Missing required parameters' });
         }
-      }
-    );
-
-    const reportJobId = createReportResponse.data.reportJobId;
-    console.log('Report Job ID:', reportJobId);
-
-    // Poll trạng thái report
-    console.log('Polling report status...');
-    let reportStatus;
-    do {
-      reportStatus = await axios.get(
-        `https://admanager.googleapis.com/${apiVersion}/networks/${networkCode}/reports/${reportJobId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      console.log('Current status:', reportStatus.data.status);
-      await new Promise(resolve => setTimeout(resolve, 5000));
-    } while (reportStatus.data.status !== 'COMPLETED' && reportStatus.data.status !== 'FAILED');
-
-    if (reportStatus.data.status !== 'COMPLETED') {
-      throw new Error(`Report failed with status: ${reportStatus.data.status}`);
+        const result = await getRefreshToken({ clientId, clientSecret, redirectUri });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
-
-    // Download report
-    console.log('Downloading report...');
-    const reportData = await axios.get(
-      `https://admanager.googleapis.com/${apiVersion}/networks/${networkCode}/reports/${reportJobId}/generate?alt=media`,
-      { headers: { Authorization: `Bearer ${token}` }, responseType: 'text' }
-    );
-
-    // Lưu file CSV
-    const filePath = path.join(process.cwd(), outputFile);
-    await writeFileAsync(filePath, reportData.data, 'utf-8');
-    console.log(`Report downloaded to: ${filePath}`);
-
-    // Parse CSV để trả về dữ liệu JSON
-    const csvData = reportData.data;
-    const rows = csvData.split('\n').map(row => row.split(','));
-    const headers = rows[0];
-    const data = rows.slice(1).map(row => {
-      const obj = {};
-      headers.forEach((header, i) => {
-        obj[header] = row[i];
-      });
-      return obj;
-    });
-
-    return {
-      success: true,
-      reportJobId,
-      status: reportStatus.data.status,
-      filePath,
-      data
-    };
-  } catch (error) {
-    console.error('Error fetching GAM report:', error.message);
-    console.error('Error details:', error.response?.data || error);
-    return {
-      success: false,
-      error: error.message,
-      details: error.response?.data
-    };
-  }
-}
-
-// Route GET /report
-router.get('/report', async (req, res) => {
-  try {
-    const { networkCode, clientId, clientSecret, refreshToken } = req.query;
-    if (!networkCode || !clientId || !clientSecret || !refreshToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Missing required query parameters: networkCode, clientId, clientSecret, refreshToken'
-      });
-    }
-
-    console.log('GAM report request for network:', networkCode);
-
-
-    res.json({
-      success: true,
-      reportJobId: result.reportJobId,
-      status: result.status,
-      filePath: result.filePath,
-      data: result.data
-    });
-  } catch (err) {
-    console.error('Error in /report route:', err.message);
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
-  }
 });
 
 export default router;

@@ -1,25 +1,50 @@
 import express from 'express';
-import { Client, Databases, Query } from 'node-appwrite';
-import dotenv from 'dotenv';
+import crypto from 'crypto';
+const uuidv4 = () => crypto.randomBytes(10).toString('hex');
 import dayjs from 'dayjs';
-dotenv.config();
+import prisma from '../prisma.js';
+import authChecker from '../api/middleware.js';
+
 const router = express.Router();
 
-// ✅ Khởi tạo Appwrite Client
-const client = new Client()
-    .setEndpoint(process.env.APPWRITE_ENDPOINT)
-    .setProject(process.env.APPWRITE_PROJECT_ID)
-    .setKey(process.env.APPWRITE_API_KEY);
+const formatPayment = (p) => ({
+    $id: p.id,
+    $createdAt: p.createdAt.toISOString(),
+    $updatedAt: p.updatedAt.toISOString(),
+    userId: p.userId,
+    amount: p.amount ?? 0,
+    method: p.method || '',
+    transaction: p.transaction || '',
+    orderId: p.orderId || '',
+    isPurchased: p.isPurchased || '',
+    sepayTransaction: p.sepayTransaction || '',
+    contentPayment: p.contentPayment || '',
+});
 
-const databases = new Databases(client);
-const databaseId = process.env.APPWRITE_DATABASE_ID;
+/**
+ * GET /api/payment - List payments (Admin or user)
+ */
+router.get('/', authChecker, async (req, res) => {
+    try {
+        const isAdmin = req.user.role === 'admin';
+        const where = isAdmin ? {} : { userId: req.user.id };
+        const payments = await prisma.payment.findMany({
+            where,
+            orderBy: { createdAt: 'desc' }
+        });
+        return res.json(payments.map(formatPayment));
+    } catch (err) {
+        console.error('List payments error:', err);
+        return res.status(500).json({ message: 'Lỗi khi lấy danh sách thanh toán.' });
+    }
+});
 
-// ✅ Route: POST /api/payment
-router.post('/', async (req, res) => {
+/**
+ * POST /api/payment - Create new payment intent
+ */
+router.post('/', authChecker, async (req, res) => {
     try {
         console.log("📥 Payment data:", req.body);
-
-        // Lấy dữ liệu từ body
         const data = req.body;
 
         if (!data.contentPayment || !data.amount || !data.userId) {
@@ -28,159 +53,140 @@ router.post('/', async (req, res) => {
                 message: "Thiếu dữ liệu bắt buộc: contentPayment, amount, userId",
             });
         }
+
         const transaction = {
             couponCode: data.couponCode,
             amount: data.amount,
             deviceCount: data.deviceCount,
             toolId: data.toolId,
             package: data.package,
-            contentPayment : data.contentPayment ,
-            deviceCount: data.deviceCount,
-        }
-        const dataPayment = {
-            userId: data.userId,
-            contentPayment : data.contentPayment ,
-            amount: data.amount,
-            isPurchased: "pending",
-            method: "sepay",
-            transaction: JSON.stringify(transaction),
-        }
-        // Lưu vào bảng (collection) "payments"
-        console.log("dataPayment: ", dataPayment)
-        const result = await databases.createDocument(
-            databaseId,
-            'payments', // ⚠️ Tên collection trong Appwrite (phải tồn tại)
-            'unique()', // Tự tạo ID document
-            dataPayment
-        );
+            contentPayment: data.contentPayment,
+        };
 
-        console.log("✅ Lưu thành công:", result.$id);
+        const newPayment = await prisma.payment.create({
+            data: {
+                id: uuidv4().replace(/-/g, '').slice(0, 20),
+                userId: data.userId,
+                contentPayment: data.contentPayment,
+                amount: Number(data.amount),
+                isPurchased: "pending",
+                method: "sepay",
+                transaction: JSON.stringify(transaction),
+            }
+        });
 
-        res.status(201).json({
+        console.log("✅ Lưu payment thành công:", newPayment.id);
+
+        return res.status(201).json({
             success: true,
             message: 'Payment saved successfully!',
-            data: result,
+            data: formatPayment(newPayment),
         });
     } catch (error) {
         console.error('❌ Lỗi khi lưu payment:', error.message);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message,
         });
     }
 });
 
+/**
+ * POST /api/payment/finish-payment - Check payment status
+ */
 router.post("/finish-payment", async (req, res) => {
-  try {
-    const data = req.body;
-    const { contentPayment } = data;
-
-    console.log("finish-payment body:", data);
-
-    // 🔍 Tìm payment theo contentPayment (lưu trong transaction)
-    const paymentDocs = await databases.listDocuments(
-      databaseId,
-      "payments",
-      [Query.search("contentPayment", contentPayment)]
-    );
-
-    if (paymentDocs.total === 0) {
-      return res.status(201).json({
-        code: "01",
-        success: false,
-        message: "Đơn hàng của bạn không tồn tại.",
-      });
-    }
-
-    const payment = paymentDocs.documents[0];
-    console.log("Found payment:", payment);
-
-    // Nếu transaction được lưu dưới dạng string, parse ra
-    let transaction = {};
     try {
-      transaction =
-        typeof payment.transaction === "string"
-          ? JSON.parse(payment.transaction)
-          : payment.transaction;
-    } catch (err) {
-      console.warn("Không thể parse transaction:", err);
-    }
+        const { contentPayment } = req.body;
+        console.log("finish-payment body:", req.body);
 
-    // 🧠 Xử lý theo trạng thái
-    if (payment.isPurchased === "success") {
-      return res.status(201).json({
-        code: "00",
-        success: true,
-        message: "Bạn đã thanh toán thành công",
-      });
-    }
+        const payment = await prisma.payment.findFirst({
+            where: { contentPayment }
+        });
 
-    if (payment.isPurchased === "pending") {
-      return res.status(201).json({
-        code: "01",
-        success: false,
-        message:
-          "Đơn hàng của bạn chưa thanh toán! Nếu bạn đã thanh toán vui lòng chờ ít phút rồi thử lại.",
-      });
-    }
+        if (!payment) {
+            return res.status(201).json({
+                code: "01",
+                success: false,
+                message: "Đơn hàng của bạn không tồn tại.",
+            });
+        }
 
-    // Trường hợp khác (ví dụ not_full, failed...)
-    return res.status(201).json({
-      code: "02",
-      success: false,
-      message: "Trạng thái đơn hàng không xác định, vui lòng liên hệ admin.",
-    });
-  } catch (error) {
-    console.error("❌ Lỗi xử lý finish-payment:", error);
-    res.status(500).json({
-      success: false,
-      message: "Lỗi xử lý payment",
-      error: error.message,
-    });
-  }
+        console.log("Found payment:", payment);
+
+        if (payment.isPurchased === "success") {
+            return res.status(201).json({
+                code: "00",
+                success: true,
+                message: "Bạn đã thanh toán thành công",
+            });
+        }
+
+        if (payment.isPurchased === "pending") {
+            return res.status(201).json({
+                code: "01",
+                success: false,
+                message: "Đơn hàng của bạn chưa thanh toán! Nếu bạn đã thanh toán vui lòng chờ ít phút rồi thử lại.",
+            });
+        }
+
+        return res.status(201).json({
+            code: "02",
+            success: false,
+            message: "Trạng thái đơn hàng không xác định, vui lòng liên hệ admin.",
+        });
+    } catch (error) {
+        console.error("❌ Lỗi xử lý finish-payment:", error);
+        return res.status(500).json({
+            success: false,
+            message: "Lỗi xử lý payment",
+            error: error.message,
+        });
+    }
 });
 
-// ✅ /api/sepay/payment-return
+/**
+ * POST /api/sepay/payment-return - Webhook Sepay handler
+ */
 router.post("/payment-return", async (req, res) => {
     try {
         const dataPayment = req.body;
         const { code, transferAmount } = dataPayment;
-        console.log("req.body:", dataPayment);
+        console.log("Sepay webhook payload:", dataPayment);
 
-        // 1️⃣ Tìm payment có transaction.contentPayment == code
-        const paymentDocs = await databases.listDocuments(
-            databaseId,
-            "payments",
-            [Query.equal("contentPayment", code)]
-        );
+        const payment = await prisma.payment.findFirst({
+            where: { contentPayment: code }
+        });
 
-        if (paymentDocs.total === 0) {
+        if (!payment) {
             return res.status(200).json({
                 success: false,
                 message: "Đơn hàng không tồn tại.",
             });
         }
 
-        const payment = paymentDocs.documents[0];
-
-
-        // 2️⃣ Nếu payment đang chờ xử lý
         if (payment.isPurchased === "pending") {
-            const updatedPayment = {
-                isPurchased: "success",
-                sepayTransaction: JSON.stringify(dataPayment),
-            };
+            let transactionObj = {};
+            try {
+                transactionObj = typeof payment.transaction === 'string' ? JSON.parse(payment.transaction) : payment.transaction;
+            } catch (e) {
+                console.error("Parse transaction error:", e);
+            }
 
-            let amount = parseFloat(payment.transaction.amount);
-            const newAmount = parseFloat(payment.transaction.newAmount || 0);
+            let amount = parseFloat(transactionObj.amount || payment.amount);
+            const newAmount = parseFloat(transactionObj.newAmount || 0);
             if (newAmount > 0 && newAmount < amount) {
                 amount = newAmount;
             }
 
-            // Kiểm tra nếu người dùng chuyển thiếu tiền
+            // Kiểm tra chuyển thiếu tiền
             if (parseFloat(transferAmount) < amount) {
-                updatedPayment.isPurchased = "not_full";
-                await databases.updateDocument(databaseId, "payments", payment.$id, updatedPayment);
+                await prisma.payment.update({
+                    where: { id: payment.id },
+                    data: {
+                        isPurchased: "not_full",
+                        sepayTransaction: JSON.stringify(dataPayment)
+                    }
+                });
 
                 return res.status(200).json({
                     code: 1001,
@@ -188,88 +194,86 @@ router.post("/payment-return", async (req, res) => {
                 });
             }
 
-            // 3️⃣ Lấy tool từ listTool
-            const transaction = JSON.parse(payment.transaction)
-            console.log(" payment.transaction.toolId: ", transaction.toolId)
-            const toolDocs = await databases.listDocuments(databaseId, "listTool", [
-                Query.equal("$id", transaction.toolId),
-            ]);
+            // Lấy tool
+            const toolId = transactionObj.toolId;
+            const tool = await prisma.tool.findUnique({
+                where: { id: toolId }
+            });
 
-            if (toolDocs.total === 0) {
+            if (!tool) {
                 return res.status(200).json({ success: false, message: "Công cụ không tồn tại." });
             }
 
-            const tool = toolDocs.documents[0];
+            // Kiểm tra order hiện có
+            const existingOrder = await prisma.order.findFirst({
+                where: {
+                    toolId: tool.id,
+                    userId: payment.userId
+                }
+            });
 
-            // 4️⃣ Kiểm tra xem đã có order chưa
-            const existingOrders = await databases.listDocuments(databaseId, "orders", [
-                Query.equal("toolId", tool.$id),
-                Query.equal("userId", payment.userId),
-            ]);
+            let finalOrderId = null;
+            const packageDays = transactionObj.package?.days || 30;
 
-            if (existingOrders.total > 0) {
-                const existingOrder = existingOrders.documents[0];
+            if (existingOrder) {
                 let newExpire;
-
-                if (dayjs(existingOrder.expriration_date).isBefore(dayjs())) {
-                    // hết hạn → cộng từ hôm nay
-                    newExpire = dayjs().add(transaction.package.days, "day").toISOString();
+                if (existingOrder.expriration_date && dayjs(existingOrder.expriration_date).isBefore(dayjs())) {
+                    newExpire = dayjs().add(packageDays, "day").toDate();
+                } else if (existingOrder.expriration_date) {
+                    newExpire = dayjs(existingOrder.expriration_date).add(packageDays, "day").toDate();
                 } else {
-                    // còn hạn → cộng thêm
-                    newExpire = dayjs(existingOrder.expriration_date)
-                        .add(transaction.package.days, "day")
-                        .toISOString();
+                    newExpire = dayjs().add(packageDays, "day").toDate();
                 }
-                await databases.updateDocument(databaseId, "payments", payment.$id, {
-                    orderId: existingOrder.$id,
-                });
-                await databases.updateDocument(databaseId, "orders", existingOrder.$id, {
-                    expriration_date: newExpire,
-                    isPurchased: "true"
-                });
-            } else {
-                // 5️⃣ Tạo order mới
-                const newOrder = {
-                    userId: payment.userId,
-                    toolId: tool.$id,
-                    paymentId: payment.$id,
-                    price: parseFloat(transaction.package.price),
-                    max_device: parseFloat(transaction.deviceCount),
-                    status: true,
-                    isPurchased: "true",
-                    method: "sepay",
-                    expriration_date: dayjs()
-                        .add(transaction.package.days, "day")
-                        .toISOString(),
-                };
 
-                const createdOrder = await databases.createDocument(databaseId, "orders", "unique()", newOrder);
-
-                 await databases.updateDocument(databaseId, "payments", payment.$id, {
-                    orderId: createdOrder.$id,
-                });
-            }
-
-            // 6️⃣ Cập nhật coupon (nếu có)
-            const couponCode = transaction.couponCode;
-            if (couponCode) {
-                const coupons = await databases.listDocuments(databaseId, "coupon", [
-                    Query.equal("code", couponCode),
-                ]);
-
-                if (coupons.total > 0) {
-                    const coupon = coupons.documents[0];
-                    if (coupon.count < coupon.max_user) {
-                        await databases.updateDocument(databaseId, "coupon", coupon.$id, {
-                            count: coupon.count + 1,
-                        });
+                await prisma.order.update({
+                    where: { id: existingOrder.id },
+                    data: {
+                        expriration_date: newExpire,
+                        isPurchased: "true",
+                        status: true
                     }
+                });
+                finalOrderId = existingOrder.id;
+            } else {
+                const createdOrder = await prisma.order.create({
+                    data: {
+                        id: uuidv4().replace(/-/g, '').slice(0, 20),
+                        userId: payment.userId,
+                        toolId: tool.id,
+                        paymentId: payment.id,
+                        price: Number(transactionObj.package?.price || payment.amount),
+                        max_device: Number(transactionObj.deviceCount || 1),
+                        status: true,
+                        isPurchased: "true",
+                        method: "sepay",
+                        expriration_date: dayjs().add(packageDays, "day").toDate()
+                    }
+                });
+                finalOrderId = createdOrder.id;
+            }
+
+            // Cập nhật coupon
+            if (transactionObj.couponCode) {
+                const coupon = await prisma.coupon.findUnique({
+                    where: { code: transactionObj.couponCode }
+                });
+                if (coupon && coupon.count < coupon.max_user) {
+                    await prisma.coupon.update({
+                        where: { id: coupon.id },
+                        data: { count: coupon.count + 1 }
+                    });
                 }
             }
 
-            // 7️⃣ Lưu cập nhật payment
-            console.log("✅ updatedPayment:", updatedPayment);
-            await databases.updateDocument(databaseId, "payments", payment.$id, updatedPayment);
+            // Cập nhật payment
+            await prisma.payment.update({
+                where: { id: payment.id },
+                data: {
+                    orderId: finalOrderId,
+                    isPurchased: "success",
+                    sepayTransaction: JSON.stringify(dataPayment)
+                }
+            });
 
             return res.status(200).json({
                 success: true,
@@ -282,8 +286,8 @@ router.post("/payment-return", async (req, res) => {
             });
         }
     } catch (error) {
-        console.error("❌ Lỗi xử lý payment:", error);
-        res.status(500).json({ success: false, message: error.message });
+        console.error("❌ Lỗi xử lý payment webhook:", error);
+        return res.status(500).json({ success: false, message: error.message });
     }
 });
 

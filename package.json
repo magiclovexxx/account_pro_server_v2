@@ -16,27 +16,33 @@
     "@google-ads/admanager": "^0.5.0",
     "@google/genai": "^1.25.0",
     "@mrnima/facebook-downloader": "^1.0.0",
+    "@prisma/client": "6.4.1",
     "async-mutex": "^0.5.0",
     "axios": "^1.12.2",
+    "bcryptjs": "^3.0.3",
     "body-parser": "^2.2.0",
     "cheerio": "^1.1.2",
-    "cors": "^2.8.5",
+    "cors": "^2.8.6",
     "dayjs": "^1.11.18",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.4.2",
     "express": "^5.1.0",
     "ffprobe": "^1.1.2",
     "ffprobe-static": "^3.1.0",
     "googleapis": "^164.1.0",
+    "jsonwebtoken": "^9.0.3",
     "node-appwrite": "^17.0.0",
     "node-cron": "^4.2.1",
+    "pg": "^8.23.0",
     "playwright": "^1.56.0",
     "playwright-extra": "^4.3.6",
     "puppeteer": "^24.22.0",
     "puppeteer-extra-plugin-stealth": "^2.11.2",
     "rahad-all-downloader": "^2.1.18",
+    "ssh2": "^1.17.0",
     "ytdl-core": "^4.11.5"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "prisma": "6.4.1"
   }
 }
