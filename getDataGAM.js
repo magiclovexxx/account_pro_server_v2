@@ -130,11 +130,16 @@ async function fetchReportFromGAMApiV1(networkCode, startStr, endStr) {
         throw new Error(`[GAM v1] Report failed: ${JSON.stringify(opData.error)}`);
     }
 
+    const resultResource = opData.response?.reportResult || opData.result;
+    if (!resultResource) {
+        throw new Error(`[GAM v1] Không tìm thấy reportResult trong opData: ${JSON.stringify(opData)}`);
+    }
+
     const allRows = [];
     let pageToken = '';
 
     do {
-        const url = `${GAM_API_BASE}/${reportName}/results:fetchRows${
+        const url = `${GAM_API_BASE}/${resultResource}:fetchRows${
             pageToken ? `?pageToken=${pageToken}` : ''
         }`;
         const fetchResp = await axios.get(url, { headers });
@@ -146,18 +151,23 @@ async function fetchReportFromGAMApiV1(networkCode, startStr, endStr) {
                 if (row.dimensionValues) {
                     row.dimensionValues.forEach((val, idx) => {
                         const dimName = dimensions[idx];
-                        rowObj[dimName] = val.stringValue ?? val.value ?? '';
+                        let strVal = (val.stringValue ?? val.intValue ?? val.value ?? '').toString();
+                        if (dimName === 'DATE' && strVal.length === 8 && !strVal.includes('-')) {
+                            strVal = `${strVal.slice(0, 4)}-${strVal.slice(4, 6)}-${strVal.slice(6, 8)}`;
+                        }
+                        rowObj[dimName] = strVal;
                     });
                 }
-                if (row.metricValues) {
-                    row.metricValues.forEach((val, idx) => {
+                const metricItems = row.metricValues || row.metricValueGroups?.[0]?.primaryValues;
+                if (metricItems) {
+                    metricItems.forEach((val, idx) => {
                         const metricName = metrics[idx];
                         if (val.currencyValue) {
                             const units = Number(val.currencyValue.units ?? 0);
                             const nanos = Number(val.currencyValue.nanos ?? 0);
                             rowObj[metricName] = units + nanos / 1e9;
-                        } else if (val.integerValue !== undefined) {
-                            rowObj[metricName] = Number(val.integerValue);
+                        } else if (val.intValue !== undefined) {
+                            rowObj[metricName] = Number(val.intValue);
                         } else if (val.doubleValue !== undefined) {
                             rowObj[metricName] = Number(val.doubleValue);
                         } else {
@@ -172,7 +182,7 @@ async function fetchReportFromGAMApiV1(networkCode, startStr, endStr) {
         pageToken = data.nextPageToken || '';
     } while (pageToken);
 
-    console.log(`[GAM v1] Tổng số rows tải về: ${allRows.length}`);
+    console.log(`[GAM v1] [${networkCode}] Tổng số rows tải về: ${allRows.length}`);
     return allRows;
 }
 
